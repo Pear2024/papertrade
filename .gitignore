@@ -1,0 +1,66 @@
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+apps/api/.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Next.js
+apps/web/.next/
+apps/web/out/
+apps/web/build/
+apps/web/.turbo/
+
+# Testing / coverage
+coverage/
+htmlcov/
+.coverage
+.coverage.*
+*.cover
+.hypothesis/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Docker volumes / local data
+mysql_data/
+.tmp/
+
+# Misc
+*.pem
+.vercel
+*.tsbuildinfo
+next-env.d.ts

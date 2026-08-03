@@ -1,0 +1,15 @@
+"""DayTradeCryptoCoach — locked system brain (paper trading only).
+
+IMMUTABLE LOCKING PRINCIPLE: Do not change these rules autonomously.
+Only a human may edit this file on purpose after evidence + explicit decision.
+
+Baseline history:
+- A_v1 / A2 / A3 archived (see coach_brain_archive_*.py)
+- A4 (current hypothesis test): after EMA9/EMA21 trend (ขาขึ้น/ขาลง),
+  BUY when closed candle closes ABOVE EMA9 and |EMA9−EMA21| > 50;
+  SELL when closed candle closes BELOW EMA9 and |EMA9−EMA21| > 50.
+  Auto paper + SL/TP + journal still on.
+"""
+
+BRAIN_NAME = "DayTradeCryptoCoach"
+BASELINE_ID = "A4_ema9_close_sep50"
