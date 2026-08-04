@@ -77,6 +77,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
       api.coachAutoTick(symbol, interval, stake, {
         slPct: ruleOpts.sl_pct,
         tpPct: ruleOpts.tp_pct,
+        tpUsd: settings.tpUsd,
         emaSepPct: ruleOpts.ema_sep_pct,
         leverage: settings.leverage,
       }),
@@ -116,7 +117,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
     const id = window.setInterval(tick, tickMs);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoEnabled, symbol, interval, stake, tickMs, ruleOpts.sl_pct, ruleOpts.tp_pct, ruleOpts.ema_sep_pct, settings.leverage]);
+  }, [autoEnabled, symbol, interval, stake, tickMs, ruleOpts.sl_pct, ruleOpts.tp_pct, ruleOpts.ema_sep_pct, settings.leverage, settings.tpUsd]);
 
   const data = signalQuery.data;
   const signal = data?.signal ?? "WAIT";
@@ -221,8 +222,9 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
                   Settings
                 </Link>
                 : {interval}, tick {settings.autoTickSeconds}s, margin ${stake} ×{" "}
-                {settings.leverage}x, SL{" "}
-                {effSlPct}% / TP {effTpPct}% ({symbol}). Fixed margin ${stake}. ENTRY → HOLD → EXIT.
+                {settings.leverage}x, SL {effSlPct}% / TP {effTpPct}% · $TP $
+                {settings.tpUsd} ({symbol}). Open every ENTRY when flat · EXIT on
+                signal / SL / % TP / $ TP.
               </CardDescription>
             </div>
             <Badge variant={autoEnabled ? "default" : "secondary"}>
@@ -230,8 +232,8 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            ENTRY when flat → HOLD (no re-order) → EXIT on opposite signal / SL / TP · Chat on
-            ENTRY+EXIT only
+            ENTRY when flat (incl. after $ TP) → HOLD while open → EXIT on opposite
+            signal / SL / % TP / ${settings.tpUsd} USD TP · Chat on ENTRY+EXIT only
           </p>
         </CardHeader>
 
@@ -324,7 +326,8 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
             {buttonLabel}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            Paper only — open when flat · hold to SL/TP · fixed stake · journaled · no real brokerage
+            Paper only — open every ENTRY when flat · hold to SL/% TP/${settings.tpUsd} USD TP ·
+            fixed stake · journaled · no real brokerage
           </p>
 
           <div className="flex flex-wrap gap-2">

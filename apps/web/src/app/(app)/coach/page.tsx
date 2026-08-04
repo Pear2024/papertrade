@@ -101,6 +101,7 @@ export default function CoachPage() {
       api.coachAutoTick(symbol, interval, settings.autoStakeUsd, {
         slPct: ruleOpts.sl_pct,
         tpPct: ruleOpts.tp_pct,
+        tpUsd: settings.tpUsd,
         emaSepPct: ruleOpts.ema_sep_pct,
         leverage: settings.leverage,
       }),
@@ -146,6 +147,7 @@ export default function CoachPage() {
     settings.autoStakeUsd,
     settings.leverage,
     settings.autoTickSeconds,
+    settings.tpUsd,
     ruleOpts.sl_pct,
     ruleOpts.tp_pct,
     ruleOpts.ema_sep_pct,
@@ -181,7 +183,7 @@ export default function CoachPage() {
         <AlertTitle>Auto paper buy/sell (default ON)</AlertTitle>
         <AlertDescription>
           Keep this page open while logged in. Every ~{settings.autoTickSeconds}s the coach checks the
-          closed candle; on BUY it locks{" "}
+          closed candle; on every ENTRY (when flat) it opens and locks{" "}
           <strong>
             Stop Loss −{effSlPct}%
           </strong>{" "}
@@ -189,6 +191,8 @@ export default function CoachPage() {
           <strong>
             Take Profit +{effTpPct}%
           </strong>{" "}
+          plus{" "}
+          <strong>USD TP ${settings.tpUsd}</strong>{" "}
           for <strong>{symbol}</strong> (base Settings {settings.slPct}%/{settings.tpPct}%, scaled by
           coin · cap ${settings.autoStakeUsd}). Change defaults in Settings. Pause auto anytime, or
           use the big button manually.

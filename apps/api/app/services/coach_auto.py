@@ -3,7 +3,8 @@
 Version A (locked) remains the default strategy for /coach/auto-tick.
 Version B runs only on the isolated Paper B Experiment account via /coach/ab-tick.
 
-LONG/SHORT paper: open only when flat on ENTRY; hold until SL/TP (no signal flip).
+LONG/SHORT paper: open on every ENTRY while flat (including re-ENTRY after SL/TP/$ TP
+when the candle walk still says HOLD); hold until SL / % TP / dollar TP (no open-on-profit).
 Stake is fixed to the requested usd_amount (capped by cash), not equity×risk/SL.
 """
 
@@ -16,7 +17,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.money import money, position_side_from_qty, to_decimal
+from app.core.money import money, position_side_from_qty, to_decimal, unrealized_pnl
 from app.models import Asset, Order, OrderSide, Position, Trade, TradingAccount, User
 from app.schemas.orders import OrderRequest
 from app.services.coach import evaluate_daytrade_signal
@@ -221,6 +222,7 @@ async def run_auto_tick(
     tp_pct: float | None = None,
     ema_sep_pct: float | None = None,
     leverage: Decimal = Decimal("5"),
+    tp_usd: float | None = None,
 ) -> dict:
     """One paper auto step for strategy A (locked default) or B (experiment account)."""
     strategy_key = strategy.strip().upper()
@@ -229,6 +231,13 @@ async def run_auto_tick(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="strategy must be A or B",
         )
+
+    # Absolute USD take-profit (matches UI unrealized P/L). None → $70; 0 → disabled.
+    dollar_tp = (
+        money(tp_usd) if tp_usd is not None else money(70)
+    )
+    if dollar_tp < 0:
+        dollar_tp = money(0)
 
     account = get_strategy_paper_account(db, user, strategy_key)
     stats = paper_performance_stats(db, user, account=account, strategy=strategy_key)
@@ -336,7 +345,7 @@ async def run_auto_tick(
     price = to_decimal(quote.price)
     result["position_side"] = side or "flat"
 
-    # --- Always honor SL/TP first (both LONG and SHORT), even on TREND-only ticks ---
+    # --- Always honor SL / % TP / dollar TP first (LONG and SHORT), even on TREND-only ticks ---
     if position is not None and side is not None:
         entry_order = latest_entry_order(db, account.id, asset.id, side)
         if entry_order is None and side == "long":
@@ -348,19 +357,33 @@ async def run_auto_tick(
             else None
         )
         abs_qty = abs(to_decimal(position.quantity))
+        upnl = unrealized_pnl(
+            position.quantity, position.average_entry_price, price
+        )
 
         hit_sl = False
         hit_tp = False
+        hit_dollar_tp = dollar_tp > 0 and upnl >= dollar_tp
         if side == "long":
             hit_sl = sl is not None and price <= sl
-            hit_tp = tp is not None and price >= tp
+            hit_tp = (tp is not None and price >= tp) or hit_dollar_tp
         else:  # short
             hit_sl = sl is not None and price >= sl
-            hit_tp = tp is not None and price <= tp
+            hit_tp = (tp is not None and price <= tp) or hit_dollar_tp
 
         if hit_sl or hit_tp:
-            exit_kind_sl = "stop_loss" if hit_sl else "take_profit"
-            log_msg = "Closed by Stop Loss" if hit_sl else "Closed by Take Profit"
+            if hit_sl:
+                exit_kind_sl = "stop_loss"
+                log_msg = "Closed by Stop Loss"
+            elif hit_dollar_tp and not (
+                (side == "long" and tp is not None and price >= tp)
+                or (side == "short" and tp is not None and price <= tp)
+            ):
+                exit_kind_sl = "dollar_take_profit"
+                log_msg = f"Closed by Take Profit (USD ${dollar_tp} · unrealized ${upnl})"
+            else:
+                exit_kind_sl = "take_profit"
+                log_msg = "Closed by Take Profit"
             exit_phase = "EXIT_BUY" if side == "long" else "EXIT_SELL"
             if side == "long":
                 req = OrderRequest(
@@ -420,11 +443,57 @@ async def run_auto_tick(
 
     acted_key = _acted_key(account.id, symbol, strategy_key)
 
-    # ENTRY opens only when flat; HOLD is display-only; EXIT closes on opposite signal.
+    # ENTRY opens when flat; HOLD is display-only unless paper is already flat
+    # (e.g. after SL / % TP / $ TP) — then promote HOLD → ENTRY so AUTO re-opens.
     if not verdict.bar_closed:
         result["action"] = "wait"
         _log_action(result, "WAIT — forming candle (decide on closed bar only)")
         return result
+
+    # Candle walk does not see SL/TP/$ closes. If paper is flat but phase is still
+    # HOLD, treat as ENTRY so every valid setup opens again (once per closed bar).
+    if side is None and phase == "HOLD_LONG":
+        phase = "ENTRY_BUY"
+        verdict = dc_replace(
+            verdict,
+            phase="ENTRY_BUY",
+            entry="ENTRY_BUY",
+            trend="NONE",
+            exit="NONE",
+            position="LONG",
+            signal="BUY",
+            reason=(
+                "ENTRY BUY (paper flat · setup still valid after prior exit): "
+                "re-open LONG with locked SL/TP."
+            ),
+            short_reason="ENTRY BUY → LONG (re-open)",
+            cofr=f"C:{verdict.confidence} | O:entry-buy | F:ENTRY_BUY | R:reopen-flat",
+        )
+        result["phase"] = phase
+        result["signal"] = "BUY"
+        result["entry"] = "ENTRY_BUY"
+        _log_action(result, "Paper flat during HOLD LONG → ENTRY BUY (open every ENTRY)")
+    elif side is None and phase == "HOLD_SHORT":
+        phase = "ENTRY_SELL"
+        verdict = dc_replace(
+            verdict,
+            phase="ENTRY_SELL",
+            entry="ENTRY_SELL",
+            trend="NONE",
+            exit="NONE",
+            position="SHORT",
+            signal="SELL",
+            reason=(
+                "ENTRY SELL (paper flat · setup still valid after prior exit): "
+                "re-open SHORT with locked SL/TP."
+            ),
+            short_reason="ENTRY SELL → SHORT (re-open)",
+            cofr=f"C:{verdict.confidence} | O:entry-sell | F:ENTRY_SELL | R:reopen-flat",
+        )
+        result["phase"] = phase
+        result["signal"] = "SELL"
+        result["entry"] = "ENTRY_SELL"
+        _log_action(result, "Paper flat during HOLD SHORT → ENTRY SELL (open every ENTRY)")
 
     # --- Signal EXIT / same-bar FLIP ---
     if phase in {"EXIT_BUY", "FLIP_TO_SHORT"} and side == "long" and position is not None:
@@ -529,7 +598,7 @@ async def run_auto_tick(
         result["action"] = "hold_until_exit"
         _log_action(
             result,
-            f"Holding {side.upper()} — ignore ENTRY {verdict.signal} until EXIT / SL / TP",
+            f"Holding {side.upper()} — ignore ENTRY {verdict.signal} until EXIT / SL / TP / $TP",
         )
         return result
 

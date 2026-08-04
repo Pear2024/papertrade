@@ -292,15 +292,15 @@ export function TradingChart({
       color: TV.ema9,
       lineWidth: 2,
       priceLineVisible: false,
-      lastValueVisible: true,
-      title: "EMA 9",
+      lastValueVisible: false,
+      title: "",
     });
     const ema21 = chart.addLineSeries({
       color: TV.ema21,
       lineWidth: 2,
       priceLineVisible: false,
-      lastValueVisible: true,
-      title: "EMA 21",
+      lastValueVisible: false,
+      title: "",
     });
 
     chartRef.current = chart;
@@ -642,14 +642,6 @@ export function TradingChart({
         className="flex flex-wrap items-center gap-4 border-t px-3 py-1.5 text-[11px]"
         style={{ borderColor: TV.border, background: TV.panel, color: TV.muted }}
       >
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-0.5 w-3" style={{ background: TV.ema9 }} />
-          EMA 9
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-0.5 w-3" style={{ background: TV.ema21 }} />
-          EMA 21
-        </span>
         <span className="inline-flex items-center gap-1.5" style={{ color: TV.up }}>
           ▲ BUY (while setup holds)
         </span>

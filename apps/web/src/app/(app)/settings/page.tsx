@@ -149,7 +149,7 @@ export default function SettingsPage() {
     const next = saveCoachSettings(normalizeCoachSettings(coachForm));
     setCoachForm(next);
     setCoachMsg(
-      `Coach auto saved · ${next.interval} · tick ${next.autoTickSeconds}s · stake $${next.autoStakeUsd} · ${next.leverage}x · SL ${next.slPct}% / TP ${next.tpPct}% · EMA gap ${next.emaSeparationPct}%`,
+      `Coach auto saved · ${next.interval} · tick ${next.autoTickSeconds}s · stake $${next.autoStakeUsd} · ${next.leverage}x · SL ${next.slPct}% / TP ${next.tpPct}% · $TP $${next.tpUsd} · EMA gap ${next.emaSeparationPct}%`,
     );
   };
 
@@ -336,6 +336,24 @@ export default function SettingsPage() {
                   setCoachForm((s) => ({ ...s, tpPct: Number(e.target.value) }))
                 }
               />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tp_usd">Take profit (USD)</Label>
+              <Input
+                id="tp_usd"
+                type="number"
+                min={0}
+                max={1000000}
+                step={1}
+                value={coachForm.tpUsd}
+                onChange={(e) =>
+                  setCoachForm((s) => ({ ...s, tpUsd: Number(e.target.value) }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                AUTO closes when live unrealized P/L reaches this amount (default $70).
+                Set 0 to disable. Works alongside % TP — whichever hits first.
+              </p>
             </div>
           </div>
 

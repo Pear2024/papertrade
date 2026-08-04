@@ -17,6 +17,11 @@ export type CoachSettings = {
   slPct: number;
   /** Take profit fraction as percent points, e.g. 3 = 3%. */
   tpPct: number;
+  /**
+   * Absolute USD take-profit for AUTO exit (matches live unrealized P/L).
+   * Close when unrealized ≥ this; 0 disables. Default $70.
+   */
+  tpUsd: number;
   /** Min |EMA9−EMA21| as % of close, e.g. 0.10. */
   emaSeparationPct: number;
   /** Paper futures leverage (1–50). Stake USD = margin; notional = margin × leverage. */
@@ -30,6 +35,7 @@ export const DEFAULT_COACH_SETTINGS: CoachSettings = {
   autoOnDefault: true,
   slPct: 2,
   tpPct: 3,
+  tpUsd: 70,
   emaSeparationPct: 0.1,
   leverage: 5,
 };
@@ -53,6 +59,7 @@ export function normalizeCoachSettings(raw: Partial<CoachSettings> | null | unde
     autoOnDefault: raw?.autoOnDefault ?? d.autoOnDefault,
     slPct: clamp(Number(raw?.slPct ?? d.slPct), 0.1, 20),
     tpPct: clamp(Number(raw?.tpPct ?? d.tpPct), 0.1, 50),
+    tpUsd: clamp(Number(raw?.tpUsd ?? d.tpUsd), 0, 1_000_000),
     emaSeparationPct: clamp(Number(raw?.emaSeparationPct ?? d.emaSeparationPct), 0.01, 5),
     leverage: clamp(Number(raw?.leverage ?? d.leverage), 1, 50),
   };

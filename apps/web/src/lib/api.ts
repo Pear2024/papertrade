@@ -174,7 +174,13 @@ export const api = {
     symbol: string,
     interval: CandleInterval = "15m",
     usdAmount = 100,
-    opts?: { slPct?: number; tpPct?: number; emaSepPct?: number; leverage?: number },
+    opts?: {
+      slPct?: number;
+      tpPct?: number;
+      tpUsd?: number;
+      emaSepPct?: number;
+      leverage?: number;
+    },
   ) => {
     const q = new URLSearchParams({
       symbol,
@@ -183,6 +189,7 @@ export const api = {
     });
     if (opts?.slPct != null) q.set("sl_pct", String(opts.slPct));
     if (opts?.tpPct != null) q.set("tp_pct", String(opts.tpPct));
+    if (opts?.tpUsd != null) q.set("tp_usd", String(opts.tpUsd));
     if (opts?.emaSepPct != null) q.set("ema_sep_pct", String(opts.emaSepPct));
     if (opts?.leverage != null) q.set("leverage", String(opts.leverage));
     return apiFetch<CoachAutoTick>(`/coach/auto-tick?${q}`, { method: "POST" }, true);

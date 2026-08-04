@@ -201,6 +201,12 @@ async def coach_auto_tick(
     leverage: float = Query(default=5, ge=1, le=50),
     sl_pct: float | None = Query(default=None, gt=0, le=0.5),
     tp_pct: float | None = Query(default=None, gt=0, le=1),
+    tp_usd: float | None = Query(
+        default=None,
+        ge=0,
+        le=1_000_000,
+        description="Absolute USD take-profit (unrealized). Default 70 when omitted; 0 disables.",
+    ),
     ema_sep_pct: float | None = Query(default=None, gt=0, le=10),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -218,6 +224,7 @@ async def coach_auto_tick(
         tp_pct=tp_pct,
         ema_sep_pct=ema_sep_pct,
         leverage=Decimal(str(leverage)),
+        tp_usd=tp_usd,
     )
     return _tick_response(raw)
 
