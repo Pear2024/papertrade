@@ -75,6 +75,20 @@ class CoachVerdict:
     entry: str = "NONE"  # ENTRY_BUY | ENTRY_SELL | NONE
     exit: str = "NONE"  # EXIT_BUY | EXIT_SELL | NONE
     exit_reason: str | None = None  # Signal | stop_loss | take_profit
+    # Observability (display / audit — does not change A4 thresholds)
+    reasons: list[str] | None = None
+    rf_proba: float | None = None
+    regime: int | None = None
+    regime_label: str | None = None
+    signal_candidate: str | None = None
+    ema_gap_pct: float | None = None
+    entry_price: Decimal | None = None
+    confidence_source: str = "primary"  # primary | meta_alpha_rf
+    meta_alpha_reason: str | None = None
+    meta_alpha_take: bool | None = None
+    primary_confidence: int | None = None
+    tp_progress: float | None = None
+    position_state: str | None = None  # alias of position for UI consistency
 
 
 def _ema(values: list[float], period: int) -> list[float | None]:
@@ -578,7 +592,8 @@ async def evaluate_daytrade_signal(
             money(price), sl_pct=rule_sl, tp_pct=rule_tp, price_precision=px_prec
         )
 
-    conf = max(buy_score, sell_score, 50) if phase != "NONE" else max(buy_score, sell_score)
+    primary_conf = max(buy_score, sell_score, 50) if phase != "NONE" else max(buy_score, sell_score)
+    conf = primary_conf
     notes = (
         buy_notes
         if prefer_buy or phase in {"EXIT_BUY", "FLIP_TO_LONG"} or (buy_score >= sell_score and not prefer_sell)
@@ -651,6 +666,34 @@ async def evaluate_daytrade_signal(
         cofr = f"C:{conf} | O:incomplete | F:WAIT | R:no-trade"
         short = _short_reason("WAIT", notes=notes, forming=False, sep_min=sep_min)
 
+    from app.services.coach_observability import (
+        build_entry_reasons,
+        signal_candidate_from_phase,
+    )
+
+    side_for_reasons = (
+        "BUY"
+        if prefer_buy or phase in {"EXIT_BUY", "FLIP_TO_LONG"}
+        else "SELL"
+        if prefer_sell or phase in {"EXIT_SELL", "FLIP_TO_SHORT"}
+        else ("BUY" if buy_score >= sell_score else "SELL")
+    )
+    reasons = build_entry_reasons(
+        side=side_for_reasons,
+        uptrend=uptrend,
+        downtrend=downtrend,
+        close_above_ema9=close_above_ema9,
+        close_below_ema9=close_below_ema9,
+        separation_ok=separation_ok,
+        separation_pct=separation_pct,
+        sep_min=sep_min,
+    )
+    candidate = signal_candidate_from_phase(phase, buy_ok, sell_ok)
+    entry_px = money(price) if phase in {
+        "ENTRY_BUY", "ENTRY_SELL", "FLIP_TO_LONG", "FLIP_TO_SHORT",
+        "HOLD_LONG", "HOLD_SHORT",
+    } else None
+
     return CoachVerdict(
         symbol=sym,
         interval=iv,
@@ -677,4 +720,10 @@ async def evaluate_daytrade_signal(
         entry=entry,
         exit=exit_kind,
         exit_reason=exit_reason,
+        reasons=reasons,
+        signal_candidate=candidate,
+        ema_gap_pct=separation_pct,
+        entry_price=entry_px,
+        primary_confidence=primary_conf,
+        position_state=position,
     )

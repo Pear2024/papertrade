@@ -17,6 +17,7 @@ import { BarCountdown } from "./bar-countdown";
 import { HoldStatusCard } from "./hold-status-card";
 import { useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
+import { coachSettingsToApiParams } from "@/lib/coach-settings";
 import { computeEma } from "@/lib/ema";
 import {
   BASIC_EMA_RULES,
@@ -68,6 +69,7 @@ export function TradingChart({
   defaultInterval = "15m",
 }: Props) {
   const { settings } = useCoachSettings();
+  const ruleOpts = coachSettingsToApiParams(settings, symbol);
   const [interval, setInterval] = useState<CandleInterval>(defaultInterval);
   const [showAllSignals, setShowAllSignals] = useState(true);
   /** Keep chart glued to the latest candles on refresh (no manual scroll). */
@@ -99,6 +101,24 @@ export function TradingChart({
   const positionQuery = useQuery({
     queryKey: ["position", symbol],
     queryFn: () => api.position(symbol).catch(() => null),
+    refetchInterval: 15_000,
+  });
+
+  const signalQuery = useQuery({
+    queryKey: [
+      "coach-signal",
+      symbol,
+      interval,
+      ruleOpts.sl_pct,
+      ruleOpts.tp_pct,
+      ruleOpts.ema_sep_pct,
+    ],
+    queryFn: () =>
+      api.coachSignal(symbol, interval, {
+        slPct: ruleOpts.sl_pct,
+        tpPct: ruleOpts.tp_pct,
+        emaSepPct: ruleOpts.ema_sep_pct,
+      }),
     refetchInterval: 15_000,
   });
 
@@ -206,14 +226,39 @@ export function TradingChart({
         ? `Desk still ${paperSide.toUpperCase()} (not closed)`
         : null;
 
+    const apiHold = signalQuery.data?.hold;
+    const entryPrice =
+      apiHold && Number(apiHold.entry_price) > 0
+        ? Number(apiHold.entry_price)
+        : pos && Number(pos.average_entry_price) > 0
+          ? Number(pos.average_entry_price)
+          : entryEv.price;
+    const sl =
+      apiHold?.stop_loss != null
+        ? Number(apiHold.stop_loss)
+        : pos?.stop_loss_price != null
+          ? Number(pos.stop_loss_price)
+          : null;
+    const tp =
+      apiHold?.take_profit != null
+        ? Number(apiHold.take_profit)
+        : pos?.take_profit_price != null
+          ? Number(pos.take_profit_price)
+          : null;
+
     return {
       side: side as "long" | "short",
-      entryPrice: entryEv.price,
+      entryPrice,
       currentPrice: current,
       entryTimeSec: entryEv.time,
       note,
+      stopLoss: sl != null && Number.isFinite(sl) ? sl : null,
+      takeProfit: tp != null && Number.isFinite(tp) ? tp : null,
+      riskReward: apiHold?.risk_reward ?? signalQuery.data?.risk_reward ?? "1:1.5",
+      tpProgress: apiHold?.tp_progress ?? signalQuery.data?.tp_progress ?? null,
+      pnlUsd: apiHold?.pnl_usd ?? (pos ? Number(pos.unrealized_pnl) : null),
     };
-  }, [candleSeries, phases, latestPhase, positionQuery.data]);
+  }, [candleSeries, phases, latestPhase, positionQuery.data, signalQuery.data]);
 
   const formatSignalTime = (unixSec: number) => {
     try {
@@ -379,7 +424,13 @@ export function TradingChart({
     );
 
     const storyMarkers = showAllSignals
-      ? buildChartStoryMarkers(phases).map((m) => ({
+      ? buildChartStoryMarkers(phases, {
+          confidencePct:
+            signalQuery.data?.confidence_source === "meta_alpha_rf" ||
+            signalQuery.data?.rf_proba != null
+              ? signalQuery.data.confidence
+              : signalQuery.data?.confidence ?? null,
+        }).map((m) => ({
           time: m.time as UTCTimestamp,
           position: m.position,
           color: m.color,
@@ -387,7 +438,7 @@ export function TradingChart({
           text: m.text,
         }))
       : [];
-    // One marker per story event — combined flip labels prevent EXIT/ENTRY overlap.
+    // One marker per story event — ENTRY/EXIT only (HOLD is the overlay panel).
     candleRef.current.setMarkers(storyMarkers);
 
     // Stick to the live right edge when Follow is on (keeps this corner view on refresh).
@@ -399,7 +450,7 @@ export function TradingChart({
     requestAnimationFrame(() => {
       pinningRef.current = false;
     });
-  }, [candleSeries, phases, showAllSignals, followLive]);
+  }, [candleSeries, phases, showAllSignals, followLive, signalQuery.data?.confidence, signalQuery.data?.rf_proba, signalQuery.data?.confidence_source]);
 
   const last = candleSeries.at(-1);
   const lastClose = last?.close ?? null;
@@ -420,7 +471,10 @@ export function TradingChart({
             {symbol}/USDT
           </span>
           <span className="text-[11px]" style={{ color: TV.muted }}>
-            ENTRY → HOLD → EXIT · EMA9/21 · gap over 0.10%
+            ENTRY → HOLD → EXIT · EMA9/21 · gap 0.10%
+            {signalQuery.data?.regime_label
+              ? ` · ${signalQuery.data.regime_label}`
+              : ""}
           </span>
         </div>
         {lastClose != null && (
@@ -501,8 +555,12 @@ export function TradingChart({
           <p className="font-medium" style={{ color: TV.text }}>
             Active rule: {BASIC_EMA_RULES.label}
           </p>
+          <p style={{ color: TV.text }}>{BASIC_EMA_RULES.stackSummary}</p>
           <p>
             <span style={{ color: "#00e676" }}>ENTRY</span> — {BASIC_EMA_RULES.buy}
+          </p>
+          <p>
+            <span style={{ color: "#26c6da" }}>FILTER</span> — {BASIC_EMA_RULES.filter}
           </p>
           <p>
             <span style={{ color: "#b0bec5" }}>EXIT</span> — {BASIC_EMA_RULES.exits}
@@ -562,6 +620,11 @@ export function TradingChart({
             currentPrice={holdCard.currentPrice}
             entryTimeSec={holdCard.entryTimeSec}
             note={holdCard.note}
+            stopLoss={holdCard.stopLoss}
+            takeProfit={holdCard.takeProfit}
+            riskReward={holdCard.riskReward}
+            tpProgress={holdCard.tpProgress}
+            pnlUsd={holdCard.pnlUsd}
           />
         )}
         <div ref={containerRef} style={{ height }} />

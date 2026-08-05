@@ -103,6 +103,8 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
         queryClient.invalidateQueries({ queryKey: ["account-summary"] }),
         queryClient.invalidateQueries({ queryKey: ["coach-stats"] }),
         queryClient.invalidateQueries({ queryKey: ["trades"] }),
+        queryClient.invalidateQueries({ queryKey: ["coach-trade-journal", symbol] }),
+        queryClient.invalidateQueries({ queryKey: ["coach-decisions", symbol] }),
       ]);
     },
     onError: (error) => setLastMsg((error as Error).message),
@@ -223,8 +225,8 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
                 </Link>
                 : {interval}, tick {settings.autoTickSeconds}s, margin ${stake} ×{" "}
                 {settings.leverage}x, SL {effSlPct}% / TP {effTpPct}% · $TP $
-                {settings.tpUsd} ({symbol}). Open every ENTRY when flat · EXIT on
-                signal / SL / % TP / $ TP.
+                {settings.tpUsd} ({symbol}). Stack: A4 EMA ENTRY → MetaAlpha filter ON
+                (proba ≥ 0.75) → open when flat · EXIT on signal / SL / % TP / $ TP.
               </CardDescription>
             </div>
             <Badge variant={autoEnabled ? "default" : "secondary"}>
@@ -256,9 +258,35 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
                 {signal}
               </p>
               <p className="mt-1 text-sm">
-                Confidence {data?.confidence ?? 0}%
+                Confidence{" "}
+                {data?.confidence_source === "meta_alpha_rf" && data.rf_proba != null
+                  ? `${data.confidence}%`
+                  : data?.confidence != null
+                    ? `${data.confidence}%`
+                    : "N/A"}
+                {data?.rf_proba != null
+                  ? ` · RF Probability: ${data.rf_proba.toFixed(2)}`
+                  : " · RF Probability: N/A"}
                 {data?.bar_closed === false ? " · waiting for candle close" : ""}
               </p>
+              {data?.regime_label ? (
+                <p className="mt-1 text-xs font-semibold tracking-wide">
+                  Regime: {data.regime_label}
+                </p>
+              ) : null}
+              {data?.entry_price &&
+              (phase.startsWith("ENTRY") || phase.startsWith("HOLD") || phase.startsWith("FLIP")) ? (
+                <p className="mt-1 text-xs">
+                  Entry price: <span className="font-mono font-medium">{formatMoney(data.entry_price)}</span>
+                </p>
+              ) : null}
+              {data?.reasons && data.reasons.length > 0 ? (
+                <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs opacity-90">
+                  {data.reasons.slice(0, 8).map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              ) : null}
               <p className="mt-2 text-sm font-medium leading-snug">
                 {data?.short_reason || data?.reason}
               </p>
@@ -267,7 +295,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
 
           <div className={cn("rounded-lg border p-4", statusTone)}>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Position status
+              Position status · {hasPosition ? `${statusLabel} — HOLD` : "FLAT — can evaluate ENTRY"}
             </p>
             <p className="mt-1 text-2xl font-semibold tracking-tight">{statusLabel}</p>
             <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
@@ -283,7 +311,26 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
               <p>
                 Take Profit: <span className="font-medium">{posTp}</span>
               </p>
+              {data?.hold?.tp_progress != null ? (
+                <p>
+                  TP progress:{" "}
+                  <span className="font-medium">{Math.round(data.hold.tp_progress)}%</span>
+                </p>
+              ) : null}
+              {data?.risk_reward || data?.hold?.risk_reward ? (
+                <p>
+                  Risk/Reward:{" "}
+                  <span className="font-medium">
+                    {data?.hold?.risk_reward || data?.risk_reward}
+                  </span>
+                </p>
+              ) : null}
             </div>
+            {hasPosition ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Only HOLD or EXIT {statusLabel} while open — no new ENTRY.
+              </p>
+            ) : null}
           </div>
 
           <BarCountdown interval={interval} />

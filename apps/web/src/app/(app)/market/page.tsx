@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { PaperBanner } from "@/components/layout/paper-banner";
 import { KrakenFeedStatus } from "@/components/kraken-feed-status";
 import { SignalAutoCard } from "@/components/signal-auto-card";
+import { TradeJournalPanel } from "@/components/trade-journal-panel";
 import { TradingChart } from "@/components/trading-chart";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -80,7 +81,10 @@ export default function MarketPage() {
         <Skeleton className="h-64 w-full" />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
-          <SignalAutoCard symbol={selected} />
+          <div className="space-y-4">
+            <SignalAutoCard symbol={selected} />
+            <TradeJournalPanel symbol={selected} />
+          </div>
 
           <Card className="border-dashed opacity-80">
             <CardHeader>
@@ -92,8 +96,9 @@ export default function MarketPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Active rule: {BASIC_EMA_RULES.label}. Auto desk buys/sells only when the coach signal
-                matches (closed bar). Google Chat notifies on ENTRY and EXIT only.
+                Active rule: {BASIC_EMA_RULES.stackSummary}. Auto desk buys/sells only when the coach
+                signal matches (closed bar) and MetaAlpha says take. Google Chat notifies on ENTRY
+                and EXIT only.
               </p>
               <div className={cn("rounded-md border bg-muted/20 px-3 py-3 text-sm text-muted-foreground")}>
                 <p className="font-medium text-foreground">{others.length} extra pairs listed</p>

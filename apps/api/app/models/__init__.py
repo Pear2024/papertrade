@@ -361,6 +361,61 @@ class CoachSignalEvent(Base):
     )
 
 
+class CoachDecisionAudit(Base):
+    """Per closed-bar model decision for debugging (A4 + MetaAlpha + AUTO action)."""
+
+    __tablename__ = "coach_decision_audits"
+    __table_args__ = (
+        UniqueConstraint(
+            "symbol",
+            "interval",
+            "evaluated_bar_time",
+            "brain",
+            "strategy",
+            name="uq_coach_decision_bar",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    interval: Mapped[str] = mapped_column(String(8), nullable=False, index=True)
+    brain: Mapped[str] = mapped_column(String(80), nullable=False, default="DayTradeCryptoCoach")
+    strategy: Mapped[str] = mapped_column(String(8), nullable=False, default="A", index=True)
+    evaluated_bar_time: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    signal: Mapped[str] = mapped_column(String(16), nullable=False, default="WAIT")
+    signal_candidate: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    phase: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    position_state: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # ENTRY | HOLD | EXIT | SKIP
+    final_action: Mapped[str] = mapped_column(String(16), nullable=False, default="SKIP", index=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rf_proba: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 8), nullable=True)
+    regime: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    regime_label: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    reasons_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price: Mapped[Optional[Decimal]] = mapped_column(PRICE, nullable=True)
+    ema9: Mapped[Optional[Decimal]] = mapped_column(PRICE, nullable=True)
+    ema21: Mapped[Optional[Decimal]] = mapped_column(PRICE, nullable=True)
+    ema_gap_pct: Mapped[Optional[Decimal]] = mapped_column(Numeric(12, 6), nullable=True)
+    stop_loss: Mapped[Optional[Decimal]] = mapped_column(PRICE, nullable=True)
+    take_profit: Mapped[Optional[Decimal]] = mapped_column(PRICE, nullable=True)
+    risk_reward: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    auto_action: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    order_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    account_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    bar_closed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
 class AccountReset(Base):
     __tablename__ = "account_resets"
 

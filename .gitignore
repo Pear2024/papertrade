@@ -64,3 +64,7 @@ mysql_data/
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+# MetaAlpha trained artifacts (keep directory via .gitkeep)
+apps/api/app/services/meta_alpha/artifacts/*
+!apps/api/app/services/meta_alpha/artifacts/.gitkeep

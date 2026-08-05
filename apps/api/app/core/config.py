@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     # Google Chat incoming webhook (optional). Never commit the real URL.
     google_chat_webhook_url: str | None = None
 
+    # MetaAlpha Quantum Engine — optional ENTRY meta-label filter (default OFF).
+    meta_alpha_enabled: bool = False
+    meta_alpha_threshold: float = 0.75
+    meta_alpha_model_path: str = (
+        "apps/api/app/services/meta_alpha/artifacts/meta_labeler.joblib"
+    )
+    meta_alpha_mode: str = "feature"
+    meta_alpha_fail_closed: bool = True
+    meta_alpha_min_bars: int = 120
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

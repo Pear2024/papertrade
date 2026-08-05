@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CoachSignalPanel } from "@/components/coach-signal-panel";
 import { PaperBanner } from "@/components/layout/paper-banner";
 import { PnlText } from "@/components/pnl-text";
+import { TradeJournalPanel } from "@/components/trade-journal-panel";
+import { TradingChart } from "@/components/trading-chart";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,13 +54,13 @@ const SYMBOLS = [
 
 export default function CoachPage() {
   const { settings } = useCoachSettings();
+  const [symbol, setSymbol] = useState<(typeof SYMBOLS)[number]>("BTC");
   const ruleOpts = coachSettingsToApiParams(settings, symbol);
   const { slPct: effSlPct, tpPct: effTpPct } = resolveSlTpPct(
     symbol,
     settings.slPct,
     settings.tpPct,
   );
-  const [symbol, setSymbol] = useState<(typeof SYMBOLS)[number]>("BTC");
   const [interval, setInterval] = useState<CandleInterval>(settings.interval);
   const [autoEnabled, setAutoEnabled] = useState(settings.autoOnDefault);
   const [autoMsg, setAutoMsg] = useState<string | null>(null);
@@ -312,7 +314,12 @@ export default function CoachPage() {
         </Alert>
       )}
 
-      <CoachSignalPanel symbol={symbol} interval={interval} onIntervalChange={setInterval} />
+      <TradingChart symbol={symbol} height={420} defaultInterval={interval} />
+
+      <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <CoachSignalPanel symbol={symbol} interval={interval} onIntervalChange={setInterval} />
+        <TradeJournalPanel symbol={symbol} />
+      </div>
 
       <Card>
         <CardHeader>

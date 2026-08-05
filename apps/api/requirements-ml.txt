@@ -1,0 +1,11 @@
+# Optional ML deps for MetaAlpha Quantum Engine (Phase 1 live gate / research).
+# Default API install (requirements.txt) does NOT include these — AUTO stays light.
+#
+#   pip install -r apps/api/requirements-ml.txt
+#
+# Then set META_ALPHA_ENABLED=true and place a joblib artifact (see meta_alpha/README.md).
+
+numpy>=1.26,<3
+pandas>=2.1,<3
+scikit-learn>=1.3,<2
+joblib>=1.3,<2

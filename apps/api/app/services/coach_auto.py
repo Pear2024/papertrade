@@ -17,6 +17,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import get_settings
 from app.core.money import money, position_side_from_qty, to_decimal, unrealized_pnl
 from app.models import Asset, Order, OrderSide, Position, Trade, TradingAccount, User
 from app.schemas.orders import OrderRequest
@@ -36,7 +37,7 @@ from app.services.coach_experiment_b import (
     evaluate_daytrade_signal_b,
 )
 from app.services.google_chat import notify_coach_signal
-from app.services.prices import get_price_quote
+from app.services.prices import get_candles, get_price_quote
 from app.services.trading import (
     execute_buy,
     execute_sell,
@@ -65,6 +66,238 @@ def _log_action(result: dict, message: str) -> None:
     logs.append(message)
     logger.info("paper_auto %s", message)
     result["reason"] = " · ".join(logs)
+
+
+def _copy_verdict_observability(result: dict, verdict) -> None:
+    result["reasons"] = list(getattr(verdict, "reasons", None) or [])
+    result["rf_proba"] = getattr(verdict, "rf_proba", None)
+    result["regime"] = getattr(verdict, "regime", None)
+    result["regime_label"] = getattr(verdict, "regime_label", None)
+    result["ema_gap_pct"] = getattr(verdict, "ema_gap_pct", None)
+    result["signal_candidate"] = getattr(verdict, "signal_candidate", None)
+    result["confidence_source"] = getattr(verdict, "confidence_source", None)
+    result["primary_confidence"] = getattr(verdict, "primary_confidence", None)
+    result["confidence"] = verdict.confidence
+    ep = getattr(verdict, "entry_price", None)
+    result["entry_price"] = str(ep) if ep is not None else None
+    if result.get("entry_price") is None and (verdict.phase or "").startswith("ENTRY"):
+        result["entry_price"] = str(verdict.price)
+
+
+def _build_hold_dict(
+    *,
+    position: Position | None,
+    entry_order: Order | None,
+    mark: Decimal,
+    risk_reward: str | None,
+) -> dict | None:
+    from datetime import datetime, timezone
+
+    from app.services.coach_observability import hold_pnl, tp_progress_pct
+
+    if position is None:
+        return None
+    side = position_side_from_qty(position.quantity)
+    if side not in {"long", "short"}:
+        return None
+    entry = to_decimal(position.average_entry_price)
+    current = to_decimal(mark)
+    pnl_pct, pnl_usd = hold_pnl(
+        side=side.upper(), entry=entry, current=current, quantity=position.quantity
+    )
+    sl = str(entry_order.stop_loss_price) if entry_order and entry_order.stop_loss_price else None
+    tp = (
+        str(entry_order.take_profit_price)
+        if entry_order and entry_order.take_profit_price
+        else None
+    )
+    progress = tp_progress_pct(
+        side=side.upper(),
+        entry=entry,
+        current=current,
+        take_profit=entry_order.take_profit_price if entry_order else None,
+    )
+    time_sec = None
+    if entry_order and entry_order.filled_at:
+        et = entry_order.filled_at
+        if et.tzinfo is None:
+            et = et.replace(tzinfo=timezone.utc)
+        time_sec = max(0, int((datetime.now(timezone.utc) - et).total_seconds()))
+    return {
+        "side": side.upper(),
+        "entry_price": str(entry),
+        "current_price": str(current),
+        "pnl_pct": round(pnl_pct, 4),
+        "pnl_usd": round(pnl_usd, 4) if pnl_usd is not None else None,
+        "time_in_trade_sec": time_sec,
+        "stop_loss": sl,
+        "take_profit": tp,
+        "risk_reward": risk_reward,
+        "tp_progress": round(progress, 2) if progress is not None else None,
+    }
+
+
+def _finalize_auto_result(
+    db: Session,
+    *,
+    result: dict,
+    verdict,
+    strategy_key: str,
+    account: TradingAccount | None,
+    position: Position | None,
+    price: Decimal | None,
+) -> dict:
+    """Attach hold panel + persist decision audit (never raises)."""
+    from app.services.coach_decision_audit import persist_decision_audit
+    from app.services.coach_observability import gate_to_public, map_final_action, regime_label
+
+    try:
+        _copy_verdict_observability(result, verdict)
+        gate = result.get("meta_alpha")
+        if isinstance(gate, dict):
+            if result.get("rf_proba") is None:
+                result["rf_proba"] = gate.get("proba")
+            if result.get("regime") is None and gate.get("regime") is not None:
+                result["regime"] = int(gate["regime"])
+                result["regime_label"] = regime_label(int(gate["regime"]))
+            public = gate_to_public(gate)
+            if public:
+                result["meta_alpha"] = public
+
+        entry_order = None
+        if (
+            account is not None
+            and position is not None
+            and price is not None
+        ):
+            side = position_side_from_qty(position.quantity)
+            if side in {"long", "short"}:
+                entry_order = latest_entry_order(db, account.id, position.asset_id, side)
+                if entry_order is None and side == "long":
+                    entry_order = latest_filled_buy_order(
+                        db, account.id, position.asset_id
+                    )
+            hold = _build_hold_dict(
+                position=position,
+                entry_order=entry_order,
+                mark=price,
+                risk_reward=result.get("risk_reward") or verdict.risk_reward,
+            )
+            result["hold"] = hold
+            if hold:
+                result["tp_progress"] = hold.get("tp_progress")
+                if result.get("entry_price") is None:
+                    result["entry_price"] = hold.get("entry_price")
+                if result.get("stop_loss") is None:
+                    result["stop_loss"] = hold.get("stop_loss")
+                if result.get("take_profit") is None:
+                    result["take_profit"] = hold.get("take_profit")
+
+        reject = None
+        action = result.get("action") or "none"
+        if action in {
+            "skip_meta_filter",
+            "skip_same_candle",
+            "skip_same_signal",
+            "locked",
+            "wait",
+            "hold_until_exit",
+        }:
+            reject = result.get("reason")
+        persist_decision_audit(
+            db,
+            verdict,
+            final_action=map_final_action(
+                phase=result.get("phase") or verdict.phase or "NONE",
+                auto_action=action,
+                signal=result.get("signal") or verdict.signal,
+            ),
+            auto_action=action,
+            rejection_reason=reject,
+            rf_proba=result.get("rf_proba"),
+            regime=result.get("regime"),
+            reasons=result.get("reasons"),
+            signal_candidate=result.get("signal_candidate"),
+            order_id=result.get("order_id"),
+            strategy=strategy_key,
+            account_id=result.get("account_id"),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("finalize_auto_result failed")
+    return result
+
+
+async def _meta_alpha_entry_gate(
+    db: Session,
+    *,
+    symbol: str,
+    interval: str,
+    signal: str,
+    evaluated_bar_time: int | None,
+) -> dict:
+    """Optional MetaAlpha filter for ENTRY opens only. Disabled → identity (take)."""
+    settings = get_settings()
+    if not settings.meta_alpha_enabled:
+        return {
+            "take": 1,
+            "proba": None,
+            "regime": None,
+            "reason": "meta_alpha_disabled",
+            "warm": True,
+        }
+
+    primary_side = 1 if signal == "BUY" else -1 if signal == "SELL" else 0
+    if primary_side == 0:
+        return {
+            "take": 1,
+            "proba": None,
+            "regime": None,
+            "reason": "non_entry_signal",
+            "warm": True,
+        }
+
+    fail_closed = bool(settings.meta_alpha_fail_closed)
+    try:
+        # Lazy import so the disabled path never loads sklearn/pandas.
+        from app.services.meta_alpha.live_gate import decide_take_trade
+    except ImportError as exc:
+        logger.warning("meta_alpha enabled but import failed: %s", exc)
+        return {
+            "take": 0 if fail_closed else 1,
+            "proba": None,
+            "regime": None,
+            "reason": f"import_error:{exc}",
+            "warm": False,
+        }
+
+    min_bars = max(int(settings.meta_alpha_min_bars), 120)
+    try:
+        _sym, _iv, _src, candles = await get_candles(
+            db, symbol, interval, min_bars + 5
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("meta_alpha candle fetch failed: %s", exc)
+        return {
+            "take": 0 if fail_closed else 1,
+            "proba": None,
+            "regime": None,
+            "reason": f"candles_error:{type(exc).__name__}",
+            "warm": False,
+        }
+
+    if evaluated_bar_time is not None:
+        candles = [c for c in candles if int(c.time) <= int(evaluated_bar_time)]
+
+    return decide_take_trade(
+        candles=candles,
+        primary_side=primary_side,
+        enabled=True,
+        threshold=float(settings.meta_alpha_threshold),
+        model_path=settings.meta_alpha_model_path,
+        mode=str(settings.meta_alpha_mode or "feature"),
+        fail_closed=fail_closed,
+        min_bars=int(settings.meta_alpha_min_bars),
+    )
 
 
 def paper_performance_stats(
@@ -291,7 +524,15 @@ async def run_auto_tick(
 
     # Store closed-bar ENTRY/HOLD/EXIT for MySQL analysis (deduped per bar).
     from app.services.coach_signal_store import persist_coach_signal
+    from app.services.coach_meta_enrich import enrich_verdict_meta_alpha
     from dataclasses import replace as dc_replace
+
+    # Observability: RF / regime on every closed-bar tick (does not gate here).
+    meta_gate: dict | None = None
+    try:
+        verdict, meta_gate = await enrich_verdict_meta_alpha(db, verdict)
+    except Exception:  # noqa: BLE001
+        logger.exception("meta_alpha enrich failed on auto-tick")
 
     persist_coach_signal(db, verdict)
 
@@ -320,12 +561,31 @@ async def run_auto_tick(
         "exit": exit_kind,
         "position_state": getattr(verdict, "position", None) or "NEUTRAL",
         "logs": [],
+        "meta_alpha": meta_gate,
+        "stop_loss": str(verdict.stop_loss) if verdict.stop_loss is not None else None,
+        "take_profit": str(verdict.take_profit) if verdict.take_profit is not None else None,
+        "risk_reward": verdict.risk_reward,
     }
+    _copy_verdict_observability(result, verdict)
+
+    position: Position | None = None
+    price: Decimal | None = None
+
+    def _done() -> dict:
+        return _finalize_auto_result(
+            db,
+            result=result,
+            verdict=verdict,
+            strategy_key=strategy_key,
+            account=account,
+            position=position,
+            price=price,
+        )
 
     if stats["trading_locked"]:
         result["action"] = "locked"
         result["reason"] = stats["lock_reason"] or "Trading locked by statistics"
-        return result
+        return _done()
 
     asset = db.scalar(select(Asset).where(Asset.symbol == symbol.upper()))
     if asset is None:
@@ -438,8 +698,10 @@ async def run_auto_tick(
             result["stats"] = paper_performance_stats(
                 db, user, account=account, strategy=strategy_key
             )
+            verdict = exit_verdict
+            position = None
             # After forced exit, do not also open on same tick.
-            return result
+            return _done()
 
     acted_key = _acted_key(account.id, symbol, strategy_key)
 
@@ -448,7 +710,7 @@ async def run_auto_tick(
     if not verdict.bar_closed:
         result["action"] = "wait"
         _log_action(result, "WAIT — forming candle (decide on closed bar only)")
-        return result
+        return _done()
 
     # Candle walk does not see SL/TP/$ closes. If paper is flat but phase is still
     # HOLD, treat as ENTRY so every valid setup opens again (once per closed bar).
@@ -524,7 +786,7 @@ async def run_auto_tick(
         )
         _last_acted_signal.pop(acted_key, None)
         if phase != "FLIP_TO_SHORT":
-            return result
+            return _done()
         # Continue to open SHORT on same tick.
         side = None
         position = None
@@ -557,7 +819,7 @@ async def run_auto_tick(
         )
         _last_acted_signal.pop(acted_key, None)
         if phase != "FLIP_TO_LONG":
-            return result
+            return _done()
         side = None
         position = None
 
@@ -572,7 +834,7 @@ async def run_auto_tick(
         else:
             _last_acted_signal.pop(acted_key, None)
             _log_action(result, "WAIT — no ENTRY on this closed bar")
-        return result
+        return _done()
 
     bar_time = verdict.evaluated_bar_time
     if bar_time is not None and _last_processed_bar.get(acted_key) == bar_time:
@@ -581,17 +843,17 @@ async def run_auto_tick(
             result,
             f"Skipped — candle {bar_time} already processed for ENTRY {verdict.signal}",
         )
-        return result
+        return _done()
 
     # Never open another LONG while already LONG (or SHORT while SHORT).
     if verdict.signal == "BUY" and side == "long":
         result["action"] = "skip_same_signal"
         _log_action(result, "Skipped because already LONG")
-        return result
+        return _done()
     if verdict.signal == "SELL" and side == "short":
         result["action"] = "skip_same_signal"
         _log_action(result, "Skipped because already SHORT")
-        return result
+        return _done()
 
     # Still in a position but phase is ENTRY the other way (desync) — hold / wait EXIT path.
     if side is not None:
@@ -600,7 +862,7 @@ async def run_auto_tick(
             result,
             f"Holding {side.upper()} — ignore ENTRY {verdict.signal} until EXIT / SL / TP / $TP",
         )
-        return result
+        return _done()
 
     async def _size_stake() -> Decimal | None:
         """Fixed stake from Settings / request (usd_amount), capped by cash only."""
@@ -701,28 +963,84 @@ async def run_auto_tick(
 
     if verdict.signal == "BUY":
         # Flat only — opposite side already returned hold_for_sl_tp above.
+        gate = await _meta_alpha_entry_gate(
+            db,
+            symbol=symbol,
+            interval=interval,
+            signal="BUY",
+            evaluated_bar_time=verdict.evaluated_bar_time,
+        )
+        result["meta_alpha"] = gate
+        if gate.get("proba") is not None:
+            result["rf_proba"] = gate["proba"]
+            result["confidence"] = int(round(float(gate["proba"]) * 100))
+            result["confidence_source"] = "meta_alpha_rf"
+        if gate.get("regime") is not None:
+            from app.services.coach_observability import regime_label as _rl
+
+            result["regime"] = int(gate["regime"])
+            result["regime_label"] = _rl(int(gate["regime"]))
+        if not gate.get("take"):
+            result["action"] = "skip_meta_filter"
+            _log_action(
+                result,
+                "Skipped ENTRY BUY — MetaAlpha filter "
+                f"(reason={gate.get('reason')} proba={gate.get('proba')} "
+                f"regime={gate.get('regime')})",
+            )
+            if bar_time is not None:
+                _last_processed_bar[acted_key] = bar_time
+            return _done()
         stake = await _size_stake()
         if stake is None:
-            return result
+            return _done()
         await _open_long(stake)
         result["stats"] = paper_performance_stats(
             db, user, account=account, strategy=strategy_key
         )
-        return result
+        return _done()
 
     if verdict.signal == "SELL":
+        gate = await _meta_alpha_entry_gate(
+            db,
+            symbol=symbol,
+            interval=interval,
+            signal="SELL",
+            evaluated_bar_time=verdict.evaluated_bar_time,
+        )
+        result["meta_alpha"] = gate
+        if gate.get("proba") is not None:
+            result["rf_proba"] = gate["proba"]
+            result["confidence"] = int(round(float(gate["proba"]) * 100))
+            result["confidence_source"] = "meta_alpha_rf"
+        if gate.get("regime") is not None:
+            from app.services.coach_observability import regime_label as _rl
+
+            result["regime"] = int(gate["regime"])
+            result["regime_label"] = _rl(int(gate["regime"]))
+        if not gate.get("take"):
+            result["action"] = "skip_meta_filter"
+            _log_action(
+                result,
+                "Skipped ENTRY SELL — MetaAlpha filter "
+                f"(reason={gate.get('reason')} proba={gate.get('proba')} "
+                f"regime={gate.get('regime')})",
+            )
+            if bar_time is not None:
+                _last_processed_bar[acted_key] = bar_time
+            return _done()
         stake = await _size_stake()
         if stake is None:
-            return result
+            return _done()
         await _open_short(stake)
         result["stats"] = paper_performance_stats(
             db, user, account=account, strategy=strategy_key
         )
-        return result
+        return _done()
 
     result["action"] = "hold"
     _log_action(result, verdict.reason)
-    return result
+    return _done()
 
 
 async def run_ab_auto_tick(

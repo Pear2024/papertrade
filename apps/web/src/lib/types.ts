@@ -285,6 +285,103 @@ export interface CoachSignal {
   /** EXIT_BUY|EXIT_SELL|NONE */
   exit?: string;
   exit_reason?: string | null;
+  /** Observability */
+  reasons?: string[];
+  rf_proba?: number | null;
+  regime?: number | null;
+  regime_label?: string | null;
+  signal_candidate?: string | null;
+  ema_gap_pct?: number | null;
+  entry_price?: MoneyString | null;
+  confidence_source?: string;
+  primary_confidence?: number | null;
+  meta_alpha?: MetaAlphaGate | null;
+  tp_progress?: number | null;
+  position_state?: string;
+  hold?: HoldPanel | null;
+}
+
+export interface MetaAlphaGate {
+  take: number;
+  proba: number | null;
+  regime: number | null;
+  regime_label: string | null;
+  reason: string;
+  warm: boolean;
+}
+
+export interface HoldPanel {
+  side: string;
+  entry_price: MoneyString;
+  current_price: MoneyString;
+  pnl_pct: number;
+  pnl_usd?: number | null;
+  time_in_trade_sec?: number | null;
+  stop_loss?: MoneyString | null;
+  take_profit?: MoneyString | null;
+  risk_reward?: string | null;
+  tp_progress?: number | null;
+}
+
+export interface CoachDecisionAuditItem {
+  id: number;
+  symbol: string;
+  interval: string;
+  brain: string;
+  strategy: string;
+  evaluated_bar_time: number;
+  signal: string;
+  signal_candidate?: string | null;
+  phase?: string | null;
+  position_state?: string | null;
+  final_action: string;
+  rejection_reason?: string | null;
+  confidence: number;
+  rf_proba?: number | null;
+  regime?: number | null;
+  regime_label?: string | null;
+  reasons?: string[];
+  price?: MoneyString | null;
+  ema9?: MoneyString | null;
+  ema21?: MoneyString | null;
+  ema_gap_pct?: MoneyString | null;
+  stop_loss?: MoneyString | null;
+  take_profit?: MoneyString | null;
+  risk_reward?: string | null;
+  auto_action?: string | null;
+  order_id?: number | null;
+  account_id?: number | null;
+  bar_closed?: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CoachDecisionAudit {
+  paper_only: boolean;
+  count: number;
+  items: CoachDecisionAuditItem[];
+}
+
+export interface CoachTradeJournalItem {
+  id: number;
+  symbol: string;
+  side: string;
+  entry_time?: string | null;
+  exit_time?: string | null;
+  entry_price?: MoneyString | null;
+  exit_price?: MoneyString | null;
+  net_pnl?: MoneyString | null;
+  exit_reason?: string | null;
+  confidence?: number | null;
+  regime_label?: string | null;
+  duration_sec?: number | null;
+  order_id?: number | null;
+}
+
+export interface CoachTradeJournal {
+  paper_only: boolean;
+  count: number;
+  items: CoachTradeJournalItem[];
 }
 
 export interface CoachSignalHistoryItem {
@@ -381,6 +478,18 @@ export interface CoachAutoTick {
   take_profit?: string | null;
   position_side?: string | null;
   logs?: string[];
+  reasons?: string[];
+  rf_proba?: number | null;
+  regime?: number | null;
+  regime_label?: string | null;
+  entry_price?: string | null;
+  confidence_source?: string | null;
+  primary_confidence?: number | null;
+  meta_alpha?: MetaAlphaGate | null;
+  tp_progress?: number | null;
+  hold?: HoldPanel | null;
+  ema_gap_pct?: number | null;
+  signal_candidate?: string | null;
 }
 
 export class ApiError extends Error {

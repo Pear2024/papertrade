@@ -56,13 +56,18 @@ export interface CompletedTrade {
 /** Locked hypothesis A4 (must match apps/api coach_brain.py). */
 export const BASIC_EMA_RULES = {
   id: "a4_ema9_close_sep_pct",
-  label: "A4 story: ENTRY → HOLD → EXIT",
+  label: "Live stack · A4 + MetaAlpha ON",
+  /** One-line friend summary of what’s live right now. */
+  stackSummary:
+    "Primary: A4 EMA ENTRY (BUY/SELL) · Filter: MetaAlpha Quantum Engine ON (RF meta-label, take if proba ≥ 0.75) · Exits: SL 2% / TP 3% / $70 TP",
   buy:
-    "ENTRY BUY: flat + uptrend (EMA9>EMA21) + close above EMA9 + |EMA gap| over 0.10% → LONG once",
+    "A4 ENTRY BUY: flat + uptrend (EMA9>EMA21) + close above EMA9 + |EMA gap| > 0.10% → LONG once",
   sell:
-    "ENTRY SELL: flat + downtrend + close below EMA9 + gap → SHORT once · EXIT on opposite / SL / TP",
+    "A4 ENTRY SELL: flat + downtrend + close below EMA9 + gap → SHORT once · EXIT on opposite / SL / TP",
+  filter:
+    "MetaAlpha Quantum Engine ON — RF meta-label filter; AUTO takes the entry only if proba ≥ 0.75 (bootstrap v1 model)",
   alternate: "HOLD LONG/SHORT in history — chart shows ENTRY + EXIT only (no BUY spam)",
-  exits: "EXIT BUY/SELL once · SL 2% / TP 3% + fee cover · fixed stake",
+  exits: "EXIT on opposite signal · SL 2% / TP 3% + fee cover · $70 USD TP · fixed stake",
   journal: "Count ENTRY trades only; store entry/exit/PnL/duration/reason",
 } as const;
 
@@ -122,13 +127,13 @@ function stepPosition(
 function phaseLabel(phase: PhaseKind, sepPct: number): string {
   switch (phase) {
     case "ENTRY_BUY":
-      return `ENTRY BUY · gap ${sepPct.toFixed(3)}%`;
+      return `ENTRY LONG · gap ${sepPct.toFixed(3)}%`;
     case "ENTRY_SELL":
-      return `ENTRY SELL · gap ${sepPct.toFixed(3)}%`;
+      return `ENTRY SHORT · gap ${sepPct.toFixed(3)}%`;
     case "HOLD_LONG":
-      return `BUY · gap ${sepPct.toFixed(3)}%`;
+      return `HOLD LONG · gap ${sepPct.toFixed(3)}%`;
     case "HOLD_SHORT":
-      return `SELL · gap ${sepPct.toFixed(3)}%`;
+      return `HOLD SHORT · gap ${sepPct.toFixed(3)}%`;
     case "EXIT_BUY":
       return `EXIT LONG · setup broken · gap ${sepPct.toFixed(3)}%`;
     case "EXIT_SELL":
@@ -235,11 +240,19 @@ export type StoryChartMarker = {
 };
 
 /**
- * Chart markers:
- * - ENTRY / EXIT / FLIP with clear labels (no overlap on same candle)
- * - While setup holds: classic BUY / SELL arrows (only when A4 still true)
+ * Chart markers — ENTRY / EXIT / FLIP only (no HOLD BUY/SELL spam).
+ * Optional confidencePct annotates ENTRY markers when provided.
  */
-export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[] {
+export function buildChartStoryMarkers(
+  phases: PhaseEvent[],
+  opts?: { confidencePct?: number | null; includeHold?: boolean },
+): StoryChartMarker[] {
+  const includeHold = opts?.includeHold === true;
+  const conf =
+    opts?.confidencePct != null && Number.isFinite(opts.confidencePct)
+      ? Math.round(opts.confidencePct)
+      : null;
+
   const byTime = new Map<number, PhaseEvent[]>();
   for (const ev of phases) {
     if (
@@ -249,8 +262,7 @@ export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[]
       ev.phase !== "EXIT_SELL" &&
       ev.phase !== "FLIP_TO_SHORT" &&
       ev.phase !== "FLIP_TO_LONG" &&
-      ev.phase !== "HOLD_LONG" &&
-      ev.phase !== "HOLD_SHORT"
+      !(includeHold && (ev.phase === "HOLD_LONG" || ev.phase === "HOLD_SHORT"))
     ) {
       continue;
     }
@@ -260,6 +272,7 @@ export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[]
   }
 
   const markers: StoryChartMarker[] = [];
+  const confSuffix = conf != null ? ` · ${conf}%` : "";
 
   for (const [time, events] of byTime) {
     const kinds = new Set(events.map((e) => e.phase));
@@ -276,7 +289,7 @@ export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[]
         position: "aboveBar",
         color: "#ff1744",
         shape: "arrowDown",
-        text: "EXIT LONG → ENTRY SHORT",
+        text: `EXIT LONG → ENTRY SHORT${confSuffix}`,
       });
       continue;
     }
@@ -286,12 +299,11 @@ export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[]
         position: "belowBar",
         color: "#00e676",
         shape: "arrowUp",
-        text: "EXIT SHORT → ENTRY LONG",
+        text: `EXIT SHORT → ENTRY LONG${confSuffix}`,
       });
       continue;
     }
 
-    // Prefer ENTRY/EXIT labels over HOLD arrows on the same bar.
     if (kinds.has("EXIT_BUY") || kinds.has("EXIT_SELL")) {
       const exit = events.find((e) => e.phase === "EXIT_BUY" || e.phase === "EXIT_SELL")!;
       markers.push({
@@ -309,7 +321,7 @@ export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[]
         position: "belowBar",
         color: "#00e676",
         shape: "circle",
-        text: "ENTRY BUY",
+        text: `ENTRY LONG${confSuffix}`,
       });
       continue;
     }
@@ -319,27 +331,29 @@ export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[]
         position: "aboveBar",
         color: "#ff1744",
         shape: "arrowDown",
-        text: "↓ ENTRY SELL",
+        text: `ENTRY SHORT${confSuffix}`,
       });
       continue;
     }
 
-    if (kinds.has("HOLD_LONG")) {
-      markers.push({
-        time,
-        position: "belowBar",
-        color: "#26a69a",
-        shape: "arrowUp",
-        text: "BUY",
-      });
-    } else if (kinds.has("HOLD_SHORT")) {
-      markers.push({
-        time,
-        position: "aboveBar",
-        color: "#ef5350",
-        shape: "arrowDown",
-        text: "SELL",
-      });
+    if (includeHold) {
+      if (kinds.has("HOLD_LONG")) {
+        markers.push({
+          time,
+          position: "belowBar",
+          color: "#26a69a",
+          shape: "arrowUp",
+          text: "HOLD",
+        });
+      } else if (kinds.has("HOLD_SHORT")) {
+        markers.push({
+          time,
+          position: "aboveBar",
+          color: "#ef5350",
+          shape: "arrowDown",
+          text: "HOLD",
+        });
+      }
     }
   }
 
@@ -443,10 +457,10 @@ export function alternateSignals(signals: EmaSignal[]): EmaSignal[] {
 
 export function formatPhaseDisplay(phase: string): string {
   const map: Record<string, string> = {
-    ENTRY_BUY: "ENTRY BUY",
-    ENTRY_SELL: "ENTRY SELL",
-    HOLD_LONG: "BUY",
-    HOLD_SHORT: "SELL",
+    ENTRY_BUY: "ENTRY LONG",
+    ENTRY_SELL: "ENTRY SHORT",
+    HOLD_LONG: "HOLD LONG",
+    HOLD_SHORT: "HOLD SHORT",
     EXIT_BUY: "EXIT LONG",
     EXIT_SELL: "EXIT SHORT",
     FLIP_TO_SHORT: "EXIT LONG → ENTRY SHORT",

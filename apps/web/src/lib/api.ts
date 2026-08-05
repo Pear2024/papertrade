@@ -12,10 +12,12 @@ import {
   CandleInterval,
   CandleResponse,
   CoachAutoTick,
+  CoachDecisionAudit,
   CoachPrompt,
   CoachSignal,
   CoachSignalHistory,
   CoachStats,
+  CoachTradeJournal,
   DisciplineStats,
   EmotionPerformance,
   JournalEntry,
@@ -170,6 +172,40 @@ export const api = {
   },
   coachPrompt: () => apiFetch<CoachPrompt>("/coach/prompt", {}, true),
   coachStats: () => apiFetch<CoachStats>("/coach/stats", {}, true),
+  coachDecisions: (opts?: {
+    symbol?: string;
+    interval?: CandleInterval;
+    strategy?: string;
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (opts?.symbol) q.set("symbol", opts.symbol);
+    if (opts?.interval) q.set("interval", opts.interval);
+    if (opts?.strategy) q.set("strategy", opts.strategy);
+    if (opts?.limit != null) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return apiFetch<CoachDecisionAudit>(
+      `/coach/decisions${qs ? `?${qs}` : ""}`,
+      {},
+      true,
+    );
+  },
+  coachTradeJournal: (opts?: {
+    symbol?: string;
+    strategy?: string;
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams();
+    if (opts?.symbol) q.set("symbol", opts.symbol);
+    if (opts?.strategy) q.set("strategy", opts.strategy);
+    if (opts?.limit != null) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return apiFetch<CoachTradeJournal>(
+      `/coach/trade-journal${qs ? `?${qs}` : ""}`,
+      {},
+      true,
+    );
+  },
   coachAutoTick: (
     symbol: string,
     interval: CandleInterval = "15m",

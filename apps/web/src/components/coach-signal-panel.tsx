@@ -131,7 +131,16 @@ export function CoachSignalPanel({
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Confidence: <strong>{data.confidence}%</strong>
+                  {data.rf_proba != null
+                    ? ` · RF Probability: ${data.rf_proba.toFixed(2)}`
+                    : " · RF Probability: N/A"}
+                  {data.regime_label ? ` · ${data.regime_label}` : ""}
                 </p>
+                {data.entry_price ? (
+                  <p className="text-sm text-muted-foreground">
+                    Entry: <strong>{formatMoney(data.entry_price)}</strong>
+                  </p>
+                ) : null}
               </div>
               <div className="text-right text-sm">
                 <p>Price {formatMoney(data.price)}</p>
@@ -140,6 +149,14 @@ export function CoachSignalPanel({
                 </p>
               </div>
             </div>
+
+            {data.reasons && data.reasons.length > 0 ? (
+              <ul className="list-inside list-disc space-y-0.5 rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                {data.reasons.map((r) => (
+                  <li key={r}>{r}</li>
+                ))}
+              </ul>
+            ) : null}
 
             <Alert variant={data.signal === "WAIT" ? "warning" : "default"}>
               <AlertTitle>Short reason</AlertTitle>

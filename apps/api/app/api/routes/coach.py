@@ -4,33 +4,133 @@ Default auto-tick uses locked Version A.
 Parallel A/B paper uses /coach/ab-tick and /coach/ab-compare.
 """
 
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import get_current_user
 from app.core.database import get_db
-from app.models import User
+from app.core.money import position_side_from_qty, to_decimal
+from app.models import Asset, Position, User
 from app.schemas.coach import (
     CoachAbCompareResponse,
     CoachAbTickResponse,
     CoachAutoTickResponse,
+    CoachDecisionAuditItem,
+    CoachDecisionAuditResponse,
     CoachPromptResponse,
     CoachSignalHistoryItem,
     CoachSignalHistoryResponse,
     CoachSignalResponse,
     CoachStatsResponse,
+    CoachTradeJournalItem,
+    CoachTradeJournalResponse,
+    HoldPanelResponse,
+    MetaAlphaGateResponse,
 )
 from app.services import coach as coach_service
 from app.services import coach_auto
 from app.services.coach_brain import DEFAULT_AUTO_USD
+from app.services.coach_decision_audit import (
+    audit_to_dict,
+    list_decision_audits,
+    persist_decision_audit,
+)
+from app.services.coach_meta_enrich import enrich_verdict_meta_alpha
+from app.services.coach_observability import (
+    gate_to_public,
+    hold_pnl,
+    map_final_action,
+    tp_progress_pct,
+)
 from app.services.coach_signal_store import list_coach_signals, persist_coach_signal
+from app.services.coach_trade_journal import build_trade_journal
+from app.services.trading import (
+    get_paper_account_for_user,
+    latest_entry_order,
+    latest_filled_buy_order,
+)
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
 
-def _to_response(v: coach_service.CoachVerdict) -> CoachSignalResponse:
+def _hold_panel_from_position(
+    *,
+    position: Position | None,
+    entry_order,
+    mark: Decimal | None,
+    risk_reward: str | None,
+) -> HoldPanelResponse | None:
+    if position is None or mark is None:
+        return None
+    side = position_side_from_qty(position.quantity)
+    if side not in {"long", "short"}:
+        return None
+    entry = to_decimal(position.average_entry_price)
+    current = to_decimal(mark)
+    pnl_pct, pnl_usd = hold_pnl(
+        side=side.upper(),
+        entry=entry,
+        current=current,
+        quantity=position.quantity,
+    )
+    sl = None
+    tp = None
+    entry_time = None
+    if entry_order is not None:
+        if entry_order.stop_loss_price is not None:
+            sl = str(entry_order.stop_loss_price)
+        if entry_order.take_profit_price is not None:
+            tp = str(entry_order.take_profit_price)
+        entry_time = entry_order.filled_at
+    progress = tp_progress_pct(
+        side=side.upper(),
+        entry=entry,
+        current=current,
+        take_profit=entry_order.take_profit_price if entry_order else None,
+    )
+    time_sec = None
+    if entry_time is not None:
+        et = entry_time if entry_time.tzinfo else entry_time.replace(tzinfo=timezone.utc)
+        time_sec = max(0, int((datetime.now(timezone.utc) - et).total_seconds()))
+    return HoldPanelResponse(
+        side=side.upper(),
+        entry_price=str(entry),
+        current_price=str(current),
+        pnl_pct=round(pnl_pct, 4),
+        pnl_usd=round(pnl_usd, 4) if pnl_usd is not None else None,
+        time_in_trade_sec=time_sec,
+        stop_loss=sl,
+        take_profit=tp,
+        risk_reward=risk_reward,
+        tp_progress=round(progress, 2) if progress is not None else None,
+    )
+
+
+def _to_response(
+    v: coach_service.CoachVerdict,
+    *,
+    meta_gate: dict | None = None,
+    hold: HoldPanelResponse | None = None,
+) -> CoachSignalResponse:
+    public_gate = gate_to_public(meta_gate) if meta_gate else None
+    if public_gate is None and (
+        v.rf_proba is not None or v.regime is not None or v.meta_alpha_reason
+    ):
+        public_gate = {
+            "take": 1 if v.meta_alpha_take else 0,
+            "proba": v.rf_proba,
+            "regime": v.regime,
+            "regime_label": v.regime_label,
+            "reason": v.meta_alpha_reason or "",
+            "warm": True,
+        }
+    pos = getattr(v, "position", None) or "NEUTRAL"
     return CoachSignalResponse(
         symbol=v.symbol,
         interval=v.interval,
@@ -57,15 +157,36 @@ def _to_response(v: coach_service.CoachVerdict) -> CoachSignalResponse:
         ],
         short_reason=v.short_reason or v.reason,
         phase=getattr(v, "phase", None) or "NONE",
-        position=getattr(v, "position", None) or "NEUTRAL",
+        position=pos,
         trend=getattr(v, "trend", None) or "NONE",
         entry=getattr(v, "entry", None) or "NONE",
         exit=getattr(v, "exit", None) or "NONE",
         exit_reason=getattr(v, "exit_reason", None),
+        reasons=list(getattr(v, "reasons", None) or []),
+        rf_proba=getattr(v, "rf_proba", None),
+        regime=getattr(v, "regime", None),
+        regime_label=getattr(v, "regime_label", None),
+        signal_candidate=getattr(v, "signal_candidate", None),
+        ema_gap_pct=getattr(v, "ema_gap_pct", None),
+        entry_price=str(v.entry_price) if getattr(v, "entry_price", None) is not None else (
+            str(v.price)
+            if (getattr(v, "phase", None) or "").startswith("ENTRY")
+            else None
+        ),
+        confidence_source=getattr(v, "confidence_source", None) or "primary",
+        primary_confidence=getattr(v, "primary_confidence", None),
+        meta_alpha=MetaAlphaGateResponse(**public_gate) if public_gate else None,
+        tp_progress=hold.tp_progress if hold else getattr(v, "tp_progress", None),
+        position_state=getattr(v, "position_state", None) or pos,
+        hold=hold,
     )
 
 
 def _tick_response(raw: dict) -> CoachAutoTickResponse:
+    meta = raw.get("meta_alpha")
+    public = gate_to_public(meta) if isinstance(meta, dict) else None
+    hold_raw = raw.get("hold")
+    hold = HoldPanelResponse(**hold_raw) if isinstance(hold_raw, dict) else None
     return CoachAutoTickResponse(
         paper_only=True,
         action=raw["action"],
@@ -88,6 +209,18 @@ def _tick_response(raw: dict) -> CoachAutoTickResponse:
         phase=raw.get("phase"),
         exit=raw.get("exit"),
         position_state=raw.get("position_state"),
+        reasons=list(raw.get("reasons") or []),
+        rf_proba=raw.get("rf_proba"),
+        regime=raw.get("regime"),
+        regime_label=raw.get("regime_label"),
+        entry_price=raw.get("entry_price"),
+        confidence_source=raw.get("confidence_source"),
+        primary_confidence=raw.get("primary_confidence"),
+        meta_alpha=MetaAlphaGateResponse(**public) if public else None,
+        tp_progress=raw.get("tp_progress"),
+        hold=hold,
+        ema_gap_pct=raw.get("ema_gap_pct"),
+        signal_candidate=raw.get("signal_candidate"),
     )
 
 
@@ -123,7 +256,6 @@ async def coach_signal(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> CoachSignalResponse:
-    _ = current_user
     verdict = await coach_service.evaluate_daytrade_signal(
         db,
         symbol,
@@ -132,9 +264,49 @@ async def coach_signal(
         tp_pct=tp_pct,
         ema_sep_pct=ema_sep_pct,
     )
+    verdict, gate = await enrich_verdict_meta_alpha(db, verdict)
     persist_coach_signal(db, verdict)
-    # Chat alerts only from auto-tick (ENTRY once) — avoid /signal poll spam.
-    return _to_response(verdict)
+
+    hold: HoldPanelResponse | None = None
+    try:
+        account = get_paper_account_for_user(db, current_user)
+        asset = db.scalar(select(Asset).where(Asset.symbol == symbol.upper()))
+        if asset is not None:
+            position = db.scalar(
+                select(Position)
+                .options(joinedload(Position.asset))
+                .where(
+                    Position.trading_account_id == account.id,
+                    Position.asset_id == asset.id,
+                )
+            )
+            side = position_side_from_qty(position.quantity) if position else None
+            entry_order = None
+            if position is not None and side in {"long", "short"}:
+                entry_order = latest_entry_order(db, account.id, asset.id, side)
+                if entry_order is None and side == "long":
+                    entry_order = latest_filled_buy_order(db, account.id, asset.id)
+            mark = to_decimal(position.current_price) if position else to_decimal(verdict.price)
+            hold = _hold_panel_from_position(
+                position=position,
+                entry_order=entry_order,
+                mark=mark,
+                risk_reward=verdict.risk_reward,
+            )
+    except Exception:  # noqa: BLE001 — hold panel is best-effort
+        hold = None
+
+    persist_decision_audit(
+        db,
+        verdict,
+        final_action=map_final_action(phase=verdict.phase or "NONE", signal=verdict.signal),
+        rf_proba=verdict.rf_proba,
+        regime=verdict.regime,
+        reasons=verdict.reasons,
+        signal_candidate=verdict.signal_candidate,
+        strategy="A",
+    )
+    return _to_response(verdict, meta_gate=gate, hold=hold)
 
 
 @router.get("/signals/history", response_model=CoachSignalHistoryResponse)
@@ -191,6 +363,48 @@ def coach_signal_history(
         for r in rows
     ]
     return CoachSignalHistoryResponse(count=len(items), items=items)
+
+
+@router.get("/decisions", response_model=CoachDecisionAuditResponse)
+def coach_decision_audits(
+    symbol: str | None = Query(default=None),
+    interval: str | None = Query(default=None),
+    strategy: str = Query(default="A", pattern="^[ABab]$"),
+    limit: int = Query(default=100, ge=1, le=1000),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CoachDecisionAuditResponse:
+    """Per closed-bar model decisions (EMA, RF, regime, final action, rejection)."""
+    _ = current_user
+    rows = list_decision_audits(
+        db,
+        symbol=symbol,
+        interval=interval,
+        strategy=strategy.upper(),
+        limit=limit,
+    )
+    items = [CoachDecisionAuditItem(**audit_to_dict(r)) for r in rows]
+    return CoachDecisionAuditResponse(count=len(items), items=items)
+
+
+@router.get("/trade-journal", response_model=CoachTradeJournalResponse)
+def coach_trade_journal(
+    symbol: str | None = Query(default=None),
+    strategy: str = Query(default="A", pattern="^[ABab]$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CoachTradeJournalResponse:
+    """Completed paper trades for the Trade Journal panel."""
+    items_raw = build_trade_journal(
+        db,
+        current_user,
+        symbol=symbol,
+        strategy=strategy.upper(),
+        limit=limit,
+    )
+    items = [CoachTradeJournalItem(**row) for row in items_raw]
+    return CoachTradeJournalResponse(count=len(items), items=items)
 
 
 @router.post("/auto-tick", response_model=CoachAutoTickResponse)
