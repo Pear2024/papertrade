@@ -92,7 +92,7 @@ const SECTIONS: GuideSection[] = [
     title: "Coach",
     image: "/guide/coach.svg",
     purpose:
-      "Practice stats plus the same Lab paper AUTO desk as Market. Entries come from your Lab prompts, not built-in A4/CCR strategies.",
+      "Practice stats plus the same Lab paper AUTO desk as Market. Entries come from your Lab prompts.",
     actions: [
       "Track practice progress toward 200–500 paper trades.",
       "Select a promoted Lab profile and keep the page open so AUTO can tick.",
@@ -113,7 +113,7 @@ const SECTIONS: GuideSection[] = [
       "Save paper profile (promote) when you want AUTO to use it.",
     ],
     connects:
-      "Only promoted Lab profiles drive Market/Coach paper AUTO. Built-in A4/CCR entry strategies are retired.",
+      "Only promoted Lab profiles drive Market/Coach paper AUTO.",
   },
   {
     id: "analytics",
@@ -166,7 +166,7 @@ export default function GuidePage() {
         <AlertTitle>Lab-first paper AUTO</AlertTitle>
         <AlertDescription>
           Paper signals and AUTO use Hypothesis Lab profiles only. Prompt → backtest → save paper
-          profile → turn AUTO on in Market or Coach. Built-in A4/CCR entry strategies are removed.
+          profile → turn AUTO on in Market or Coach.
         </AlertDescription>
       </Alert>
 

@@ -177,7 +177,7 @@ const files = {
   "lab.svg": frame(
     "Lab",
     "Lab",
-    `<text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Turn a rule idea into an immutable paper-research version. A4/CCR built-ins are retired.</text>
+    `<text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Turn a rule idea into an immutable paper-research version.</text>
      <rect x="24" y="168" width="912" height="54" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
      <text x="40" y="200" font-size="13" fill="#1e40af" font-family="Segoe UI,Arial,sans-serif">Flow: Prompt → Generate version → Backtest → Save paper profile → AUTO on Market/Coach</text>
      <rect x="24" y="240" width="440" height="220" rx="12" fill="#fff" stroke="#dbe3ee"/>
@@ -235,7 +235,7 @@ const files = {
   <defs><linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#e8f6fc"/><stop offset="100%" stop-color="#f8fafc"/></linearGradient></defs>
   <rect width="960" height="320" rx="16" fill="url(#bg2)" stroke="#dbe3ee"/>
   <text x="32" y="42" font-size="18" font-weight="700" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Lab → AUTO loop</text>
-  <text x="32" y="68" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Built-in A4/CCR entry strategies are removed. Paper signals use Lab profiles only.</text>
+  <text x="32" y="68" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Paper signals use Lab profiles only.</text>
   ${[
     ["1", "Prompt", "Lab"],
     ["2", "Backtest", "Lab"],

@@ -33,11 +33,16 @@ DEFAULT_RULES: dict[str, Any] = {
     "filters": {"ema_trend": True, "htf_ema200": False, "volume_multiple": None,
                 "rsi_min": None, "rsi_max": None, "adx_min": None, "breakout_bars": None},
     "stop": {"type": "atr", "atr_multiple": 1.0}, "r_target": 2.0,
+    # Chart overlay periods (visual only). Empty → Market chart falls back to 9+21.
+    "chart_emas": [],
 }
 SUPPORTED_SYMBOLS = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT"}
 SUPPORTED_INTERVALS = {"1m", "5m", "15m", "1h", "4h", "1d"}
 SUPPORTED_HTF_INTERVALS = {"1h", "4h", "1d"}
 SUPPORTED_R_TARGETS = {1.5, 2.0, 2.5, 3.0}
+MAX_CHART_EMAS = 5
+EMA_PERIOD_MIN = 2
+EMA_PERIOD_MAX = 500
 logger = logging.getLogger(__name__)
 
 LLM_SYSTEM_PROMPT = """Extract a trading hypothesis into JSON only. This is parsing,
@@ -46,11 +51,14 @@ new rules. Return only this supported shape:
 {"symbol":"BTCUSDT","interval":"15m","htf":"1h","filters":{"ema_trend":true,
 "htf_ema200":false,"volume_multiple":null,"rsi_min":null,"rsi_max":null,
 "adx_min":null,"breakout_bars":null},"stop":{"type":"atr","atr_multiple":1.0},
-"r_target":2.0}
+"r_target":2.0,"chart_emas":[9,21]}
 Supported symbols: BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT, BNBUSDT, ADAUSDT.
 Intervals: 1m, 5m, 15m, 1h, 4h, 1d. HTF intervals: 1h, 4h, 1d.
 Use only EMA trend, HTF EMA200, volume multiple, RSI min/max, ADX minimum,
-breakout bars, stop type atr or bar_low, and R targets 1.5, 2, 2.5, or 3.
+breakout bars, stop type atr or bar_low, R targets 1.5, 2, 2.5, or 3, and
+chart_emas (up to 5 distinct periods 2–500 for Market chart overlays).
+When the user mentions EMA periods (e.g. EMA9, EMA 50, EMA200), include them in
+chart_emas. If ema_trend is true include 9 and 21; if htf_ema200 is true include 200.
 Leave unspecified values at the defaults shown above."""
 
 
@@ -65,6 +73,67 @@ def _number(value: Any, minimum: float, maximum: float) -> float | None:
         return max(minimum, min(maximum, float(value)))
     except (TypeError, ValueError):
         return None
+
+
+def normalize_ema_periods(values: Any) -> list[int]:
+    """Dedupe, bound, and cap EMA periods for chart overlays."""
+    if not isinstance(values, (list, tuple)):
+        return []
+    periods: list[int] = []
+    seen: set[int] = set()
+    for raw in values:
+        if isinstance(raw, bool):
+            continue
+        try:
+            period = int(round(float(raw)))
+        except (TypeError, ValueError):
+            continue
+        if period < EMA_PERIOD_MIN or period > EMA_PERIOD_MAX or period in seen:
+            continue
+        seen.add(period)
+        periods.append(period)
+    # Prefer shorter periods when over the overlay budget.
+    return sorted(periods)[:MAX_CHART_EMAS]
+
+
+def extract_ema_periods_from_text(prompt: str) -> list[int]:
+    """Pull EMA periods from English/Thai natural language (chart overlay config)."""
+    if not prompt:
+        return []
+    text = prompt.lower()
+    found: list[int] = []
+    # EMA9 · EMA 21 · EMA 12 and 26 · อีเอ็มเอ 50, 200
+    for match in re.finditer(
+        r"(?:ema|อีเอ็มเอ)\s*[-_]?\s*(\d{1,3})"
+        r"((?:\s*(?:,|and|และ|&|/)\s*(?:(?:ema|อีเอ็มเอ)\s*[-_]?)?\d{1,3})*)",
+        text,
+        re.I,
+    ):
+        found.append(int(match.group(1)))
+        for num in re.findall(r"\d{1,3}", match.group(2) or ""):
+            found.append(int(num))
+    return normalize_ema_periods(found)
+
+
+def resolve_chart_emas(
+    rules: dict[str, Any],
+    prompt: str = "",
+    *,
+    explicit: list[int] | None = None,
+) -> list[int]:
+    """Merge explicit periods, prompt mentions, and filter-derived EMAs (max 5)."""
+    periods: list[int] = []
+    if explicit is not None:
+        periods.extend(explicit)
+    else:
+        periods.extend(rules.get("chart_emas") or [])
+    periods.extend(extract_ema_periods_from_text(prompt))
+    filters = rules.get("filters") or {}
+    if filters.get("ema_trend"):
+        periods.extend([9, 21])
+    if filters.get("htf_ema200"):
+        periods.append(200)
+    return normalize_ema_periods(periods)
 
 
 def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -116,9 +185,17 @@ def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | Non
             if multiplier is not None:
                 normalized["stop"]["atr_multiple"] = multiplier
 
+        if "chart_emas" in source:
+            normalized["chart_emas"] = normalize_ema_periods(source.get("chart_emas"))
+
     low, high = normalized["filters"]["rsi_min"], normalized["filters"]["rsi_max"]
     if low is not None and high is not None and low > high:
         normalized["filters"]["rsi_min"], normalized["filters"]["rsi_max"] = high, low
+    # Additive overlays: explicit periods + filter-derived 9/21 and/or 200.
+    normalized["chart_emas"] = resolve_chart_emas(
+        normalized,
+        explicit=list(normalized.get("chart_emas") or []),
+    )
     return normalized
 
 
@@ -261,6 +338,12 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
     symbol = re.search(r"\b(BTC|ETH|SOL|XRP|BNB|ADA)USDT?\b", prompt.upper())
     if symbol:
         parsed["symbol"] = symbol.group(0).replace("USDT", "") + "USDT"
+    # Chart overlays from explicit periods in the prompt (plus filter mapping in normalize).
+    parsed["chart_emas"] = resolve_chart_emas(
+        parsed,
+        prompt,
+        explicit=list(parsed.get("chart_emas") or []),
+    )
     return normalize_rules(parsed)
 
 
@@ -287,6 +370,12 @@ def create_hypothesis(owner_id: int, prompt: str, name: str | None, structured_r
         try:
             rules, parser = _parse_prompt_with_llm_provider(prompt)
             rules = normalize_rules(structured_rules, rules)
+            # LLM may omit chart_emas; always merge periods mentioned in the prompt.
+            rules["chart_emas"] = resolve_chart_emas(
+                rules,
+                prompt,
+                explicit=list(rules.get("chart_emas") or []),
+            )
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
             logger.warning("Hypothesis Lab LLM parsing failed; using rules engine: %s", exc)
             rules = parse_prompt(prompt, structured_rules)

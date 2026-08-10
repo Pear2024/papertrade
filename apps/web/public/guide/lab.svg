@@ -31,7 +31,7 @@
 <rect x="862" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
     <text x="906" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Settings</text>
   <text x="24" y="120" font-size="22" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Lab</text>
-  <text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Turn a rule idea into an immutable paper-research version. A4/CCR built-ins are retired.</text>
+  <text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Turn a rule idea into an immutable paper-research version.</text>
      <rect x="24" y="168" width="912" height="54" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
      <text x="40" y="200" font-size="13" fill="#1e40af" font-family="Segoe UI,Arial,sans-serif">Flow: Prompt → Generate version → Backtest → Save paper profile → AUTO on Market/Coach</text>
      <rect x="24" y="240" width="440" height="220" rx="12" fill="#fff" stroke="#dbe3ee"/>

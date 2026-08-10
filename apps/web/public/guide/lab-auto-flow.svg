@@ -3,7 +3,7 @@
   <defs><linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#e8f6fc"/><stop offset="100%" stop-color="#f8fafc"/></linearGradient></defs>
   <rect width="960" height="320" rx="16" fill="url(#bg2)" stroke="#dbe3ee"/>
   <text x="32" y="42" font-size="18" font-weight="700" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Lab → AUTO loop</text>
-  <text x="32" y="68" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Built-in A4/CCR entry strategies are removed. Paper signals use Lab profiles only.</text>
+  <text x="32" y="68" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Paper signals use Lab profiles only.</text>
   <rect x="32" y="110" width="168" height="140" rx="12" fill="#fff" stroke="#0b7ea8"/>
     <circle cx="60" cy="142" r="16" fill="#0b7ea8"/><text x="60" y="147" text-anchor="middle" font-size="13" fill="#fff" font-family="Segoe UI,Arial,sans-serif">1</text>
     <text x="52" y="186" font-size="16" font-weight="700" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Prompt</text>

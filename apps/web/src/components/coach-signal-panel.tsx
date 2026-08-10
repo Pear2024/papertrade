@@ -176,8 +176,7 @@ export function CoachSignalPanel({
           <Alert>
             <AlertTitle>No promoted Lab profile</AlertTitle>
             <AlertDescription>
-              Built-in A4/CCR entry strategies are retired. Open Lab, write your rules, backtest,
-              then save a paper profile.
+              Open Lab, write your rules, backtest, then save a paper profile.
             </AlertDescription>
           </Alert>
         ) : coachQuery.isLoading ? (

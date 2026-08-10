@@ -419,7 +419,7 @@ export default function SettingsPage() {
                 : " · choose a promoted profile on Market/Coach"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Built-in A4/CCR strategies are retired. Write rules in{" "}
+              Write rules in{" "}
               <Link href="/lab" className="underline underline-offset-4">
                 Lab
               </Link>

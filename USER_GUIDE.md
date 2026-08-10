@@ -6,7 +6,7 @@ Illustrations live in `apps/web/public/guide/`.
 
 ## Lab → AUTO (important)
 
-Built-in **A4/CCR** entry strategies are **removed**. Paper signals and AUTO use **Hypothesis Lab** profiles only:
+Paper signals and AUTO use **Hypothesis Lab** profiles only:
 
 1. **Lab** — prompt → generate version → backtest → save paper profile  
 2. **Settings** — interval, stake, leverage, SL/TP for AUTO risk  
@@ -73,7 +73,7 @@ AUTO evaluates closed candles and fills eligible longs at the next candle open.
 
 - **For:** Practice stats + same Lab AUTO desk as Market.  
 - **Do:** Select promoted profile, keep page open for ticks.  
-- **Connects:** Lab profiles only (no A4/CCR). Outcomes → Portfolio/History.
+- **Connects:** Lab profiles only. Outcomes → Portfolio/History.
 
 ## Lab
 

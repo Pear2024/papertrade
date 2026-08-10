@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import { chartEmasFromRules } from "@/lib/lab-chart-emas";
 import { HypothesisBacktest, HypothesisLabAccess, HypothesisLabItem } from "@/lib/types";
 
 const EXAMPLE = "BTCUSDT 15m: buy when EMA9 is above EMA21, 1h close above EMA200, volume > 1.5x average, RSI 50-70, stop 1 ATR, target 2R";
@@ -25,6 +26,21 @@ function ParserBadge({ parser }: { parser: string }) {
         ? "Parsed by Gemini"
         : "Parsed by rules engine";
   return <span className="rounded-full border px-2 py-0.5 text-xs font-normal text-muted-foreground">{label}</span>;
+}
+
+function ChartEmaBadge({ rules }: { rules: Record<string, unknown> }) {
+  const periods = chartEmasFromRules(rules);
+  return (
+    <p className="text-sm text-muted-foreground">
+      Chart EMAs:{" "}
+      <span className="font-medium text-foreground">
+        {periods.map((period) => `EMA${period}`).join(", ")}
+      </span>
+      <span className="mt-1 block text-xs">
+        EMAs mentioned in your prompt appear on the Market chart.
+      </span>
+    </p>
+  );
 }
 
 function BacktestResult({ result }: { result: HypothesisBacktest }) {
@@ -79,6 +95,7 @@ function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: Hy
         <CardDescription>{item.natural_language_prompt || "Structured rule set"}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <ChartEmaBadge rules={item.structured_rules} />
         <pre className="max-h-56 overflow-auto rounded border bg-muted/30 p-3 text-xs">{JSON.stringify(item.structured_rules, null, 2)}</pre>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => backtest.mutate()} disabled={backtest.isPending}>
@@ -98,8 +115,7 @@ function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: Hy
             <AlertDescription>
               This immutable version is ready for paper AUTO. Open Market or Coach, choose this
               profile, then turn AUTO on. It evaluates closed candles and fills an eligible long at
-              the next candle open. Built-in A4/CCR strategies are retired — Lab prompts are the
-              entry path.
+              the next candle open.
             </AlertDescription>
           </Alert>
         )}
@@ -149,7 +165,10 @@ export default function HypothesisLabPage() {
       <Card>
         <CardHeader>
           <CardTitle>Describe a hypothesis</CardTitle>
-          <CardDescription>Describe a hypothesis, for example: “EMA9 crosses above EMA21, volume 1.5x, RSI 50–70, ATR 1x stop, 2R target.”</CardDescription>
+          <CardDescription>
+            Describe a hypothesis, for example: “EMA9 crosses above EMA21, volume 1.5x, RSI 50–70, ATR 1x stop, 2R target.”
+            EMAs mentioned in your prompt appear on the Market chart.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <textarea className="min-h-28 w-full rounded-md border bg-background p-3 text-sm" value={prompt} onChange={(event) => setPrompt(event.target.value)} />

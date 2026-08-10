@@ -21,6 +21,7 @@ def test_parser_maps_english_filters_and_risk() -> None:
     assert rules["filters"]["adx_min"] == 25
     assert rules["stop"]["atr_multiple"] == 1.5
     assert rules["r_target"] == 2
+    assert rules["chart_emas"] == [9, 21, 200]
 
 
 def test_parser_maps_thai_template() -> None:
@@ -30,7 +31,40 @@ def test_parser_maps_thai_template() -> None:
     assert rules["filters"]["rsi_min"] == 45
     assert rules["filters"]["rsi_max"] == 65
     assert rules["r_target"] == 3
+    assert rules["chart_emas"] == [9, 21]
 
+
+def test_parser_extracts_custom_chart_ema_periods() -> None:
+    rules = parse_prompt(
+        "BTCUSDT draw EMA 12 and 26 on the chart, volume 1.5x, stop ATR 1x, 2R",
+        {"filters": {"ema_trend": False, "htf_ema200": False}},
+    )
+    assert rules["chart_emas"] == [12, 26]
+
+
+def test_parser_extracts_thai_ema_periods() -> None:
+    rules = parse_prompt(
+        "ใช้ อีเอ็มเอ 50 และ อีเอ็มเอ200 เป็นเส้นบนชาร์ต volume 1.5x 2R",
+        {"filters": {"ema_trend": False, "htf_ema200": False}},
+    )
+    assert 50 in rules["chart_emas"]
+    assert 200 in rules["chart_emas"]
+
+
+def test_normalize_merges_filter_emas_into_chart_overlays() -> None:
+    rules = hypothesis_lab.normalize_rules({
+        "filters": {"ema_trend": True, "htf_ema200": True},
+        "chart_emas": [50],
+    })
+    assert rules["chart_emas"] == [9, 21, 50, 200]
+
+
+def test_normalize_caps_chart_emas_at_five() -> None:
+    rules = hypothesis_lab.normalize_rules({
+        "filters": {"ema_trend": False, "htf_ema200": False},
+        "chart_emas": [9, 12, 21, 26, 50, 100, 200],
+    })
+    assert rules["chart_emas"] == [9, 12, 21, 26, 50]
 
 def test_create_hypothesis_records_ollama_parser(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(hypothesis_lab, "STORE_PATH", tmp_path / "hypotheses.json")

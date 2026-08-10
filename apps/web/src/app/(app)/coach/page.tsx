@@ -83,7 +83,7 @@ export default function CoachPage() {
       <Alert>
         <AlertTitle>Lab-only paper AUTO · default {settings.autoOnDefault ? "ON" : "OFF"}</AlertTitle>
         <AlertDescription>
-          Built-in A4/CCR strategies are retired. Write rules in{" "}
+          Write rules in{" "}
           <Link href="/lab" className="underline underline-offset-4">
             Lab
           </Link>

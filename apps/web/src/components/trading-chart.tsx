@@ -20,6 +20,10 @@ import { useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
 import { computeEma } from "@/lib/ema";
 import { formatMoney } from "@/lib/format";
+import {
+  chartEmasFromRules,
+  emaColor,
+} from "@/lib/lab-chart-emas";
 import { CandleInterval } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -41,8 +45,6 @@ const TV = {
   grid: "#1e222d",
   up: "#26a69a",
   down: "#ef5350",
-  ema9: "#f0b90b",
-  ema21: "#2962ff",
 };
 
 type Props = {
@@ -64,8 +66,7 @@ export function TradingChart({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const ema9Ref = useRef<ISeriesApi<"Line"> | null>(null);
-  const ema21Ref = useRef<ISeriesApi<"Line"> | null>(null);
+  const emaSeriesRef = useRef<Map<number, ISeriesApi<"Line">>>(new Map());
   const shouldFitRef = useRef(true);
   const followLiveRef = useRef(true);
   const pinningRef = useRef(false);
@@ -105,6 +106,12 @@ export function TradingChart({
     const promoted = (labQuery.data?.items ?? []).filter((item) => item.promoted_at);
     return promoted.find((item) => item.id === settings.labHypothesisId) ?? promoted[0] ?? null;
   }, [labQuery.data, settings.labHypothesisId]);
+
+  const emaPeriods = useMemo(
+    () => chartEmasFromRules(activeLab?.structured_rules ?? null),
+    [activeLab],
+  );
+  const emaPeriodsKey = emaPeriods.join(",");
 
   const candleSeries = useMemo(() => {
     const raw = candlesQuery.data?.candles ?? [];
@@ -195,25 +202,25 @@ export function TradingChart({
       wickUpColor: TV.up,
       wickDownColor: TV.down,
     });
-    const ema9 = chart.addLineSeries({
-      color: TV.ema9,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-      title: "",
-    });
-    const ema21 = chart.addLineSeries({
-      color: TV.ema21,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
-      title: "",
-    });
+
+    const emaMap = new Map<number, ISeriesApi<"Line">>();
+    for (let i = 0; i < emaPeriods.length; i += 1) {
+      const period = emaPeriods[i];
+      emaMap.set(
+        period,
+        chart.addLineSeries({
+          color: emaColor(period, i),
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          title: "",
+        }),
+      );
+    }
 
     chartRef.current = chart;
     candleRef.current = candles;
-    ema9Ref.current = ema9;
-    ema21Ref.current = ema21;
+    emaSeriesRef.current = emaMap;
 
     const onRange = () => {
       if (pinningRef.current || !followLiveRef.current) return;
@@ -239,18 +246,12 @@ export function TradingChart({
       chart.remove();
       chartRef.current = null;
       candleRef.current = null;
-      ema9Ref.current = null;
-      ema21Ref.current = null;
+      emaSeriesRef.current = new Map();
     };
-  }, [height, interval, symbol]);
+  }, [height, interval, symbol, emaPeriodsKey]);
 
   useEffect(() => {
-    if (
-      !candleSeries.length ||
-      !candleRef.current ||
-      !ema9Ref.current ||
-      !ema21Ref.current
-    ) {
+    if (!candleSeries.length || !candleRef.current || emaSeriesRef.current.size === 0) {
       return;
     }
 
@@ -263,27 +264,22 @@ export function TradingChart({
     }));
 
     const closes = candleData.map((c) => c.close);
-    const ema9 = computeEma(closes, 9);
-    const ema21 = computeEma(closes, 21);
     const timeScale = chartRef.current?.timeScale();
     dataLenRef.current = candleData.length;
 
     candleRef.current.setData(candleData);
     candleRef.current.setMarkers([]);
-    ema9Ref.current.setData(
-      candleData
-        .map((c, i) =>
-          ema9[i] == null ? null : { time: c.time, value: ema9[i] as number },
-        )
-        .filter((x): x is { time: UTCTimestamp; value: number } => x != null),
-    );
-    ema21Ref.current.setData(
-      candleData
-        .map((c, i) =>
-          ema21[i] == null ? null : { time: c.time, value: ema21[i] as number },
-        )
-        .filter((x): x is { time: UTCTimestamp; value: number } => x != null),
-    );
+
+    for (const [period, series] of emaSeriesRef.current) {
+      const values = computeEma(closes, period);
+      series.setData(
+        candleData
+          .map((c, i) =>
+            values[i] == null ? null : { time: c.time, value: values[i] as number },
+          )
+          .filter((x): x is { time: UTCTimestamp; value: number } => x != null),
+      );
+    }
 
     pinningRef.current = true;
     if (shouldFitRef.current || followLiveRef.current) {
@@ -293,7 +289,7 @@ export function TradingChart({
     requestAnimationFrame(() => {
       pinningRef.current = false;
     });
-  }, [candleSeries, followLive]);
+  }, [candleSeries, followLive, emaPeriodsKey]);
 
   const last = candleSeries.at(-1);
   const lastClose = last?.close ?? null;
@@ -406,12 +402,12 @@ export function TradingChart({
             Entry source: Hypothesis Lab (user prompts)
           </p>
           <p>
-            Built-in A4/CCR strategies are retired. Describe rules in{" "}
+            Describe rules in{" "}
             <Link href="/lab" className="underline underline-offset-2" style={{ color: TV.text }}>
               Lab
             </Link>
-            , promote a paper profile, then run AUTO on Market or Coach. EMA9/21 lines are visual
-            context only.
+            , promote a paper profile, then run AUTO on Market or Coach. EMA lines follow periods
+            from your promoted Lab profile (visual context only).
           </p>
         </div>
         {holdCard && (
@@ -432,12 +428,15 @@ export function TradingChart({
         className="flex flex-wrap items-center gap-4 border-t px-3 py-1.5 text-[11px]"
         style={{ borderColor: TV.border, background: TV.panel, color: TV.muted }}
       >
-        <span className="inline-flex items-center gap-1.5" style={{ color: TV.ema9 }}>
-          — EMA9
-        </span>
-        <span className="inline-flex items-center gap-1.5" style={{ color: TV.ema21 }}>
-          — EMA21
-        </span>
+        {emaPeriods.map((period, index) => (
+          <span
+            key={period}
+            className="inline-flex items-center gap-1.5"
+            style={{ color: emaColor(period, index) }}
+          >
+            — EMA{period}
+          </span>
+        ))}
         <span className="ml-auto">
           Lab AUTO · Source: {candlesQuery.data?.source ?? "—"} · paper only
         </span>
