@@ -452,6 +452,24 @@ export interface HypothesisLabAccess {
   upgrade_message: string | null;
 }
 
+export interface BillingStatus {
+  plan: "free" | "pro" | string;
+  billing_enabled: boolean;
+  stripe_customer_id: string | null;
+  can_manage_billing: boolean;
+  publishable_key: string | null;
+  message: string | null;
+}
+
+export interface CheckoutSessionResponse {
+  checkout_url: string;
+  session_id: string;
+}
+
+export interface PortalSessionResponse {
+  portal_url: string;
+}
+
 
 export interface CoachTradeJournalItem {
   id: number;

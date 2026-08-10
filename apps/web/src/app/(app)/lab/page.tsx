@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { UpgradeToProButton } from "@/components/billing/upgrade-to-pro";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -157,8 +158,9 @@ export default function HypothesisLabPage() {
           </CardDescription>
         </CardHeader>
         {access.data?.upgrade_message && (
-          <CardContent className="pt-0">
-            <p className="text-sm text-muted-foreground">{access.data.upgrade_message} Contact support to upgrade.</p>
+          <CardContent className="space-y-3 pt-0">
+            <p className="text-sm text-muted-foreground">{access.data.upgrade_message}</p>
+            <UpgradeToProButton size="sm" />
           </CardContent>
         )}
       </Card>

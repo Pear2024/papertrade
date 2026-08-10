@@ -79,6 +79,19 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     gemini_model: str = "gemini-1.5-flash"
 
+    # Stripe Billing (optional). Leave blank to disable checkout; API stays up.
+    # Never log these values. Prefer Droplet `.env` only — never commit secrets.
+    stripe_secret_key: str | None = None
+    stripe_publishable_key: str | None = None
+    # Alias used by some Next.js setups; either publishable key is accepted.
+    next_public_stripe_publishable_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    stripe_price_id_pro: str | None = None
+
+    @property
+    def resolved_stripe_publishable_key(self) -> str | None:
+        return self.stripe_publishable_key or self.next_public_stripe_publishable_key
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

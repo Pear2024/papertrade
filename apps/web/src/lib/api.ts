@@ -30,6 +30,9 @@ import {
   HypothesisLabItem,
   HypothesisBacktest,
   HypothesisLabAccess,
+  BillingStatus,
+  CheckoutSessionResponse,
+  PortalSessionResponse,
 } from "@/lib/types";
 
 const TOKEN_KEY = "pcc_access_token";
@@ -316,4 +319,17 @@ export const api = {
     apiFetch<HypothesisLabItem>(`/hypothesis-lab/${encodeURIComponent(id)}/promote`, {
       method: "POST",
     }, true),
+  billingStatus: () => apiFetch<BillingStatus>("/billing/status", {}, true),
+  createCheckoutSession: (payload?: { success_url?: string; cancel_url?: string }) =>
+    apiFetch<CheckoutSessionResponse>(
+      "/billing/checkout",
+      { method: "POST", body: JSON.stringify(payload ?? {}) },
+      true,
+    ),
+  createBillingPortalSession: (payload?: { return_url?: string }) =>
+    apiFetch<PortalSessionResponse>(
+      "/billing/portal",
+      { method: "POST", body: JSON.stringify(payload ?? {}) },
+      true,
+    ),
 };

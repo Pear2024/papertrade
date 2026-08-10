@@ -45,10 +45,13 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    # Billing provider is intentionally not coupled to the MVP.  This is the
-    # server-side entitlement used by feature gates until checkout is added.
+    # Server-side entitlement used by feature gates (Lab limits / promote).
+    # Stripe Checkout + webhooks set this to "pro" / "free".
     subscription_plan: Mapped[str] = mapped_column(
         String(20), nullable=False, default="free", server_default="free"
+    )
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

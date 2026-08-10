@@ -7,6 +7,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 
+import { BillingPlanCard } from "@/components/billing/upgrade-to-pro";
 import { PaperBanner } from "@/components/layout/paper-banner";
 import { useCoachSettings } from "@/hooks/use-coach-settings";
 import {
@@ -68,6 +69,18 @@ export default function SettingsPage() {
   const [resetReason, setResetReason] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [billingNotice, setBillingNotice] = useState<"success" | "cancel" | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const billing = params.get("billing");
+    if (billing === "success" || billing === "cancel") {
+      setBillingNotice(billing);
+      void queryClient.invalidateQueries({ queryKey: ["billing-status"] });
+      void queryClient.invalidateQueries({ queryKey: ["hypothesis-lab-access"] });
+      window.history.replaceState({}, "", "/settings");
+    }
+  }, [queryClient]);
 
   useEffect(() => {
     setCoachForm(coachSettings);
@@ -224,6 +237,8 @@ export default function SettingsPage() {
       </div>
 
       <PaperBanner message={settings.paper_mode_banner} />
+
+      <BillingPlanCard billingNotice={billingNotice} />
 
       {message && (
         <Alert>

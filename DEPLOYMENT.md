@@ -107,6 +107,52 @@ temporary app configuration value; Google normally rejects non-localhost HTTP
 redirect URIs. Set up a domain and TLS first, then use that HTTPS URL in both
 Google Cloud Console and `GOOGLE_REDIRECT_URI`.
 
+### Stripe Billing (Pro upgrades)
+
+Stripe Checkout upgrades `users.subscription_plan` to `pro` via webhook. Leave
+the Stripe variables empty to keep the API healthy with billing disabled
+(Upgrade buttons return HTTP 503 until keys are set).
+
+1. In [Stripe Dashboard](https://dashboard.stripe.com/), switch to **Live**
+   mode when you are ready for real payments (or stay in Test for a dry run).
+2. **Products → Add product** → create “Paper Crypto Coach Pro” with a
+   **recurring** price. Copy the Price ID (`price_…`) into `STRIPE_PRICE_ID_PRO`.
+3. **Developers → API keys** → copy the **Secret key** (`sk_…`) into
+   `STRIPE_SECRET_KEY` and the **Publishable key** (`pk_…`) into
+   `STRIPE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`).
+4. **Developers → Webhooks → Add endpoint**:
+   - URL: `https://nadaniadigitalllc.com/api/billing/stripe/webhook`
+     (replace the domain if yours differs; Nginx strips `/api/` before FastAPI)
+   - Events: `checkout.session.completed`, `customer.subscription.updated`,
+     `customer.subscription.deleted`
+   - Copy the endpoint **Signing secret** (`whsec_…`) into `STRIPE_WEBHOOK_SECRET`.
+5. On the Droplet, edit `.env` (never commit secrets):
+
+```dotenv
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_PUBLISHABLE_KEY=pk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_ID_PRO=price_...
+WEB_APP_URL=https://nadaniadigitalllc.com
+```
+
+6. Rebuild/restart the API so it picks up the new env (web rebuild is only
+   needed if you bake `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` into the browser
+   bundle; Checkout Session redirects work without that):
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build api
+```
+
+7. In the app, open **Settings → Subscription → Upgrade to Pro**, or use
+   **Upgrade to Pro** on the Hypothesis Lab plan card. After payment, Stripe
+   redirects to `/settings?billing=success` and the webhook sets the plan.
+
+**Customer Portal:** enable the Customer Portal in Stripe Dashboard
+(**Settings → Billing → Customer portal**). After the first successful
+checkout, **Manage billing** opens that portal (cancel/update payment method).
+Canceled or unpaid subscriptions downgrade `subscription_plan` back to `free`.
+
 ## 3. Start the production stack
 
 ```bash
