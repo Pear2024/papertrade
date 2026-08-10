@@ -106,9 +106,30 @@ export function PaperSpotDesk({ symbol = "BTC" }: { symbol?: string }) {
     queryFn: () => api.position(symbol).catch(() => null),
     refetchInterval: 10_000,
   });
+  const labQuery = useQuery({
+    queryKey: ["hypothesis-lab"],
+    queryFn: api.hypothesisLab,
+    staleTime: 30_000,
+  });
+  const promotedLab = (labQuery.data?.items ?? []).filter((item) => item.promoted_at);
+  const activeLab =
+    promotedLab.find((item) => item.id === settings.labHypothesisId) ?? promotedLab[0];
+
   const signalQuery = useQuery({
-    queryKey: ["coach-signal", symbol, settings.interval],
-    queryFn: () => api.coachSignal(symbol, settings.interval),
+    queryKey: [
+      "coach-signal",
+      symbol,
+      settings.interval,
+      "lab",
+      settings.labHypothesisId,
+      activeLab?.id,
+    ],
+    queryFn: () =>
+      api.coachSignal(symbol, settings.interval, {
+        entrySource: "lab",
+        hypothesisId: activeLab?.id,
+      }),
+    enabled: Boolean(activeLab?.id),
     refetchInterval: 15_000,
   });
   const tradesQuery = useQuery({
@@ -131,8 +152,8 @@ export function PaperSpotDesk({ symbol = "BTC" }: { symbol?: string }) {
   const qtyNum = pos ? Number(pos.quantity) : 0;
   const posSide = pos?.side || (qtyNum > 0 ? "long" : qtyNum < 0 ? "short" : "flat");
   const leverage = settings.leverage;
-  const feePct = Number(feeSettingsQuery.data?.trading_fee_percent ?? 0.05);
-  const feeUsd = Number(feeSettingsQuery.data?.trading_fee_usd ?? 9);
+  const feePct = Number(feeSettingsQuery.data?.trading_fee_percent ?? 0.8);
+  const feeUsd = Number(feeSettingsQuery.data?.trading_fee_usd ?? 0);
   const useFlatFee = feeUsd > 0;
   const signal = signalQuery.data?.signal ?? "WAIT";
   const trend = signalQuery.data?.trend ?? "NONE";
@@ -311,7 +332,7 @@ export function PaperSpotDesk({ symbol = "BTC" }: { symbol?: string }) {
         error instanceof ApiError ? error.message : (error as Error).message;
       setErr(
         /daily trade limit/i.test(raw)
-          ? `${raw}. ไปที่ Settings → Max trades / day เพื่อเพิ่มลิมิต (paper)`
+          ? `${raw}. Go to Settings → Max trades / day to raise the paper-trading limit.`
           : raw,
       );
     },

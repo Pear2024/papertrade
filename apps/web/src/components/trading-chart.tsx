@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   ColorType,
@@ -17,18 +18,7 @@ import { BarCountdown } from "./bar-countdown";
 import { HoldStatusCard } from "./hold-status-card";
 import { useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
-import { coachSettingsToApiParams } from "@/lib/coach-settings";
 import { computeEma } from "@/lib/ema";
-import {
-  BASIC_EMA_RULES,
-  buildChartStoryMarkers,
-  buildCompletedTrades,
-  detectExitSignals,
-  detectEntrySignals,
-  detectTradePhases,
-  formatPhaseDisplay,
-  type PhaseEvent,
-} from "@/lib/ema-signals";
 import { formatMoney } from "@/lib/format";
 import { CandleInterval } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -68,11 +58,8 @@ export function TradingChart({
   height = 420,
   defaultInterval = "15m",
 }: Props) {
-  const { settings } = useCoachSettings();
-  const ruleOpts = coachSettingsToApiParams(settings, symbol);
-  const [interval, setInterval] = useState<CandleInterval>(defaultInterval);
-  const [showAllSignals, setShowAllSignals] = useState(true);
-  /** Keep chart glued to the latest candles on refresh (no manual scroll). */
+  const { settings, update } = useCoachSettings();
+  const [interval, setIntervalState] = useState<CandleInterval>(defaultInterval);
   const [followLive, setFollowLive] = useState(true);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -89,8 +76,13 @@ export function TradingChart({
   }, [followLive]);
 
   useEffect(() => {
-    setInterval(settings.interval);
+    setIntervalState(settings.interval);
   }, [settings.interval]);
+
+  const setInterval = (next: CandleInterval) => {
+    setIntervalState(next);
+    update({ interval: next });
+  };
 
   const candlesQuery = useQuery({
     queryKey: ["candles", symbol, interval],
@@ -104,28 +96,20 @@ export function TradingChart({
     refetchInterval: 15_000,
   });
 
-  const signalQuery = useQuery({
-    queryKey: [
-      "coach-signal",
-      symbol,
-      interval,
-      ruleOpts.sl_pct,
-      ruleOpts.tp_pct,
-      ruleOpts.ema_sep_pct,
-    ],
-    queryFn: () =>
-      api.coachSignal(symbol, interval, {
-        slPct: ruleOpts.sl_pct,
-        tpPct: ruleOpts.tp_pct,
-        emaSepPct: ruleOpts.ema_sep_pct,
-      }),
-    refetchInterval: 15_000,
+  const labQuery = useQuery({
+    queryKey: ["hypothesis-lab"],
+    queryFn: api.hypothesisLab,
+    staleTime: 30_000,
   });
+  const activeLab = useMemo(() => {
+    const promoted = (labQuery.data?.items ?? []).filter((item) => item.promoted_at);
+    return promoted.find((item) => item.id === settings.labHypothesisId) ?? promoted[0] ?? null;
+  }, [labQuery.data, settings.labHypothesisId]);
 
   const candleSeries = useMemo(() => {
     const raw = candlesQuery.data?.candles ?? [];
     return raw.map((c) => ({
-      time: c.time,
+      time: Number(c.time),
       open: Number(c.open),
       high: Number(c.high),
       low: Number(c.low),
@@ -133,145 +117,23 @@ export function TradingChart({
     }));
   }, [candlesQuery.data]);
 
-  const phases = useMemo(
-    () => detectTradePhases(candleSeries, settings.emaSeparationPct),
-    [candleSeries, settings.emaSeparationPct],
-  );
-  const entrySignals = useMemo(
-    () => detectEntrySignals(candleSeries, settings.emaSeparationPct),
-    [candleSeries, settings.emaSeparationPct],
-  );
-  const exitSignals = useMemo(
-    () => detectExitSignals(candleSeries, settings.emaSeparationPct),
-    [candleSeries, settings.emaSeparationPct],
-  );
-  const completedTrades = useMemo(
-    () => buildCompletedTrades(phases, settings.autoStakeUsd),
-    [phases, settings.autoStakeUsd],
-  );
-  const latestPhase = phases.at(-1) ?? null;
-  const entryCount = entrySignals.length;
-  const exitCount = exitSignals.length;
-  const storyEvents = useMemo(
-    () =>
-      phases.filter(
-        (p) =>
-          p.phase === "ENTRY_BUY" ||
-          p.phase === "ENTRY_SELL" ||
-          p.phase === "EXIT_BUY" ||
-          p.phase === "EXIT_SELL" ||
-          p.phase === "FLIP_TO_LONG" ||
-          p.phase === "FLIP_TO_SHORT",
-      ),
-    [phases],
-  );
-  const recentPhases = useMemo(
-    () => [...storyEvents].reverse().slice(0, 24),
-    [storyEvents],
-  );
-  const recentTrades = useMemo(
-    () => [...completedTrades].reverse().slice(0, 8),
-    [completedTrades],
-  );
-
   const holdCard = useMemo(() => {
     const last = candleSeries.at(-1);
     const current = last?.close ?? null;
-    if (current == null || !latestPhase) return null;
-
     const pos = positionQuery.data;
     const qty = pos ? Number(pos.quantity) : 0;
     const posSide =
       (pos?.side as string | undefined) ||
       (qty > 0 ? "long" : qty < 0 ? "short" : "flat");
-    const paperSide =
-      posSide === "long" || posSide === "short" ? (posSide as "long" | "short") : null;
-
-    const findOpenEntry = (want: "ENTRY_BUY" | "ENTRY_SELL"): PhaseEvent | null => {
-      const exitOf = want === "ENTRY_BUY" ? "EXIT_BUY" : "EXIT_SELL";
-      const flipAway = want === "ENTRY_BUY" ? "FLIP_TO_SHORT" : "FLIP_TO_LONG";
-      const flipInto = want === "ENTRY_BUY" ? "FLIP_TO_LONG" : "FLIP_TO_SHORT";
-      for (let i = phases.length - 1; i >= 0; i -= 1) {
-        const p = phases[i];
-        if (p.phase === exitOf || p.phase === flipAway) return null;
-        if (p.phase === want || p.phase === flipInto) {
-          return p.phase === flipInto ? { ...p, phase: want } : p;
-        }
-      }
-      return null;
-    };
-
-    // Only while A4 story is actively in a trade — never show leftover Desk fills alone.
-    if (
-      latestPhase.phase !== "HOLD_LONG" &&
-      latestPhase.phase !== "HOLD_SHORT" &&
-      latestPhase.phase !== "ENTRY_BUY" &&
-      latestPhase.phase !== "ENTRY_SELL" &&
-      latestPhase.phase !== "FLIP_TO_LONG" &&
-      latestPhase.phase !== "FLIP_TO_SHORT"
-    ) {
-      return null;
-    }
-
-    const isLong =
-      latestPhase.phase === "HOLD_LONG" ||
-      latestPhase.phase === "ENTRY_BUY" ||
-      latestPhase.phase === "FLIP_TO_LONG";
-    const entryEv = isLong ? findOpenEntry("ENTRY_BUY") : findOpenEntry("ENTRY_SELL");
-    if (!entryEv) return null;
-
-    const side = isLong ? "long" : "short";
-    const note =
-      paperSide && paperSide !== side
-        ? `Desk still ${paperSide.toUpperCase()} (not closed)`
-        : null;
-
-    const apiHold = signalQuery.data?.hold;
-    const entryPrice =
-      apiHold && Number(apiHold.entry_price) > 0
-        ? Number(apiHold.entry_price)
-        : pos && Number(pos.average_entry_price) > 0
-          ? Number(pos.average_entry_price)
-          : entryEv.price;
-    const sl =
-      apiHold?.stop_loss != null
-        ? Number(apiHold.stop_loss)
-        : pos?.stop_loss_price != null
-          ? Number(pos.stop_loss_price)
-          : null;
-    const tp =
-      apiHold?.take_profit != null
-        ? Number(apiHold.take_profit)
-        : pos?.take_profit_price != null
-          ? Number(pos.take_profit_price)
-          : null;
-
+    if (current == null || (posSide !== "long" && posSide !== "short")) return null;
     return {
-      side: side as "long" | "short",
-      entryPrice,
+      side: posSide as "long" | "short",
+      entryPrice: Number(pos?.average_entry_price ?? current),
       currentPrice: current,
-      entryTimeSec: entryEv.time,
-      note,
-      stopLoss: sl != null && Number.isFinite(sl) ? sl : null,
-      takeProfit: tp != null && Number.isFinite(tp) ? tp : null,
-      riskReward: apiHold?.risk_reward ?? signalQuery.data?.risk_reward ?? "1:1.5",
-      tpProgress: apiHold?.tp_progress ?? signalQuery.data?.tp_progress ?? null,
-      pnlUsd: apiHold?.pnl_usd ?? (pos ? Number(pos.unrealized_pnl) : null),
+      entryTimeSec: Math.floor(Date.now() / 1000) - 60,
+      note: activeLab ? `Lab ${activeLab.name} v${activeLab.version}` : "Lab paper position",
     };
-  }, [candleSeries, phases, latestPhase, positionQuery.data, signalQuery.data]);
-
-  const formatSignalTime = (unixSec: number) => {
-    try {
-      return new Date(unixSec * 1000).toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return String(unixSec);
-    }
-  };
+  }, [candleSeries, positionQuery.data, activeLab]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -403,11 +265,11 @@ export function TradingChart({
     const closes = candleData.map((c) => c.close);
     const ema9 = computeEma(closes, 9);
     const ema21 = computeEma(closes, 21);
-
     const timeScale = chartRef.current?.timeScale();
     dataLenRef.current = candleData.length;
 
     candleRef.current.setData(candleData);
+    candleRef.current.setMarkers([]);
     ema9Ref.current.setData(
       candleData
         .map((c, i) =>
@@ -423,25 +285,6 @@ export function TradingChart({
         .filter((x): x is { time: UTCTimestamp; value: number } => x != null),
     );
 
-    const storyMarkers = showAllSignals
-      ? buildChartStoryMarkers(phases, {
-          confidencePct:
-            signalQuery.data?.confidence_source === "meta_alpha_rf" ||
-            signalQuery.data?.rf_proba != null
-              ? signalQuery.data.confidence
-              : signalQuery.data?.confidence ?? null,
-        }).map((m) => ({
-          time: m.time as UTCTimestamp,
-          position: m.position,
-          color: m.color,
-          shape: m.shape,
-          text: m.text,
-        }))
-      : [];
-    // One marker per story event — ENTRY/EXIT only (HOLD is the overlay panel).
-    candleRef.current.setMarkers(storyMarkers);
-
-    // Stick to the live right edge when Follow is on (keeps this corner view on refresh).
     pinningRef.current = true;
     if (shouldFitRef.current || followLiveRef.current) {
       timeScale?.scrollToRealTime();
@@ -450,12 +293,25 @@ export function TradingChart({
     requestAnimationFrame(() => {
       pinningRef.current = false;
     });
-  }, [candleSeries, phases, showAllSignals, followLive, signalQuery.data?.confidence, signalQuery.data?.rf_proba, signalQuery.data?.confidence_source]);
+  }, [candleSeries, followLive]);
 
   const last = candleSeries.at(-1);
   const lastClose = last?.close ?? null;
   const lastOpen = last?.open ?? null;
   const up = lastClose != null && lastOpen != null && lastClose >= lastOpen;
+
+  if (candlesQuery.isLoading) {
+    return <Skeleton className={cn("w-full", className)} style={{ height }} />;
+  }
+
+  if (candlesQuery.isError) {
+    return (
+      <Alert variant="destructive" className={className}>
+        <AlertTitle>Chart unavailable</AlertTitle>
+        <AlertDescription>{(candlesQuery.error as Error).message}</AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
     <div
@@ -471,10 +327,9 @@ export function TradingChart({
             {symbol}/USDT
           </span>
           <span className="text-[11px]" style={{ color: TV.muted }}>
-            ENTRY → HOLD → EXIT · EMA9/21 · gap 0.10%
-            {signalQuery.data?.regime_label
-              ? ` · ${signalQuery.data.regime_label}`
-              : ""}
+            {activeLab
+              ? `Lab · ${activeLab.name} v${activeLab.version} · AUTO on Market/Coach`
+              : "Lab · promote a profile to run paper AUTO"}
           </span>
         </div>
         {lastClose != null && (
@@ -486,17 +341,6 @@ export function TradingChart({
           </span>
         )}
         <div className="flex flex-wrap gap-1">
-          <Button
-            type="button"
-            size="sm"
-            variant={showAllSignals ? "default" : "secondary"}
-            className="h-7 px-2 text-xs"
-            onClick={() => setShowAllSignals((v) => !v)}
-          >
-            {showAllSignals
-              ? `Hide markers (${entryCount + exitCount})`
-              : `Show ENTRY/EXIT (${entryCount + exitCount})`}
-          </Button>
           {INTERVALS.map((item) => (
             <Button
               key={item.value}
@@ -505,7 +349,8 @@ export function TradingChart({
               variant={interval === item.value ? "default" : "ghost"}
               className={cn(
                 "h-7 px-2 text-xs",
-                interval !== item.value && "text-[#d1d4dc] hover:bg-[#2a2e39] hover:text-white",
+                interval !== item.value &&
+                  "text-[#d1d4dc] hover:bg-[#2a2e39] hover:text-white",
               )}
               onClick={() => setInterval(item.value)}
             >
@@ -526,7 +371,6 @@ export function TradingChart({
                 pinningRef.current = false;
               });
             }}
-            title="Keep view on the latest candles when data updates"
           >
             {followLive ? "Follow live · ON" : "Follow live"}
           </Button>
@@ -536,15 +380,21 @@ export function TradingChart({
             variant="ghost"
             className="h-7 px-2 text-xs text-[#d1d4dc] hover:bg-[#2a2e39] hover:text-white"
             onClick={() => chartRef.current?.timeScale().fitContent()}
-            title="Fit all candles"
           >
             Fit
           </Button>
         </div>
       </div>
 
-      <div className="border-b px-3 py-2" style={{ borderColor: TV.border, background: "#161a25" }}>
-        <BarCountdown interval={interval} compact className="border-[#2a2e39] bg-[#1c2130] text-[#d1d4dc]" />
+      <div
+        className="border-b px-3 py-2"
+        style={{ borderColor: TV.border, background: "#161a25" }}
+      >
+        <BarCountdown
+          interval={interval}
+          compact
+          className="border-[#2a2e39] bg-[#1c2130] text-[#d1d4dc]"
+        />
       </div>
 
       <div
@@ -553,66 +403,17 @@ export function TradingChart({
       >
         <div className="min-w-0 flex-1 space-y-0.5">
           <p className="font-medium" style={{ color: TV.text }}>
-            Active rule: {BASIC_EMA_RULES.label}
-          </p>
-          <p style={{ color: TV.text }}>{BASIC_EMA_RULES.stackSummary}</p>
-          <p>
-            <span style={{ color: "#00e676" }}>ENTRY</span> — {BASIC_EMA_RULES.buy}
+            Entry source: Hypothesis Lab (user prompts)
           </p>
           <p>
-            <span style={{ color: "#26c6da" }}>FILTER</span> — {BASIC_EMA_RULES.filter}
+            Built-in A4/CCR strategies are retired. Describe rules in{" "}
+            <Link href="/lab" className="underline underline-offset-2" style={{ color: TV.text }}>
+              Lab
+            </Link>
+            , promote a paper profile, then run AUTO on Market or Coach. EMA9/21 lines are visual
+            context only.
           </p>
-          <p>
-            <span style={{ color: "#b0bec5" }}>EXIT</span> — {BASIC_EMA_RULES.exits}
-          </p>
-          <p>{BASIC_EMA_RULES.alternate}</p>
         </div>
-        <div className="shrink-0 text-right">
-          {latestPhase ? (
-            <>
-              <p
-                className="text-sm font-semibold"
-                style={{
-                  color:
-                    latestPhase.phase.startsWith("ENTRY") || latestPhase.phase.includes("LONG")
-                      ? latestPhase.phase.includes("SHORT") || latestPhase.phase === "EXIT_SELL"
-                        ? TV.down
-                        : TV.up
-                      : latestPhase.phase.includes("SHORT") || latestPhase.phase === "EXIT_SELL"
-                        ? TV.down
-                        : TV.muted,
-                }}
-              >
-                {formatPhaseDisplay(latestPhase.phase)}
-              </p>
-              <p>{formatMoney(latestPhase.price)}</p>
-              <p className="max-w-[220px]">{latestPhase.reason}</p>
-              <p className="mt-1">
-                {showAllSignals
-                  ? `${entryCount} ENTRY · ${exitCount} EXIT · ${completedTrades.length} closed trades`
-                  : "Press “Show ENTRY/EXIT” to draw markers"}
-              </p>
-            </>
-          ) : (
-            <p>No phase on this window yet</p>
-          )}
-        </div>
-      </div>
-
-      <div className="relative">
-        {candlesQuery.isLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#131722]/80">
-            <Skeleton className="h-8 w-40 bg-[#2a2e39]" />
-          </div>
-        )}
-        {candlesQuery.isError && (
-          <div className="p-4">
-            <Alert variant="destructive">
-              <AlertTitle>Chart unavailable</AlertTitle>
-              <AlertDescription>{(candlesQuery.error as Error).message}</AlertDescription>
-            </Alert>
-          </div>
-        )}
         {holdCard && (
           <HoldStatusCard
             side={holdCard.side}
@@ -620,106 +421,25 @@ export function TradingChart({
             currentPrice={holdCard.currentPrice}
             entryTimeSec={holdCard.entryTimeSec}
             note={holdCard.note}
-            stopLoss={holdCard.stopLoss}
-            takeProfit={holdCard.takeProfit}
-            riskReward={holdCard.riskReward}
-            tpProgress={holdCard.tpProgress}
-            pnlUsd={holdCard.pnlUsd}
+            className="max-w-xs shrink-0"
           />
         )}
-        <div ref={containerRef} style={{ height }} />
       </div>
 
-      {showAllSignals && recentPhases.length > 0 && (
-        <div
-          className="max-h-48 overflow-auto border-t px-3 py-2 text-[11px]"
-          style={{ borderColor: TV.border, background: "#161a25", color: TV.muted }}
-        >
-          <p className="mb-1.5 font-medium" style={{ color: TV.text }}>
-            Trade story — ENTRY / EXIT only (latest {recentPhases.length} of{" "}
-            {storyEvents.length})
-          </p>
-          <ul className="space-y-1">
-            {recentPhases.map((s) => {
-              const color =
-                s.phase === "ENTRY_BUY" || s.phase === "FLIP_TO_LONG"
-                  ? "#00e676"
-                  : s.phase === "ENTRY_SELL" || s.phase === "FLIP_TO_SHORT"
-                    ? "#ff1744"
-                    : "#b0bec5";
-              return (
-                <li key={`${s.phase}-${s.time}`} className="flex flex-wrap gap-x-2 gap-y-0.5">
-                  <span className="font-semibold" style={{ color }}>
-                    {formatPhaseDisplay(s.phase)}
-                  </span>
-                  <span>{formatSignalTime(s.time)}</span>
-                  <span>{formatMoney(s.price)}</span>
-                  <span className="opacity-80">{s.reason}</span>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-
-      {showAllSignals && recentTrades.length > 0 && (
-        <div
-          className="max-h-40 overflow-auto border-t px-3 py-2 text-[11px]"
-          style={{ borderColor: TV.border, background: "#161a25", color: TV.muted }}
-        >
-          <p className="mb-1.5 font-medium" style={{ color: TV.text }}>
-            Completed trades (ENTRY count {entryCount} · closed {completedTrades.length})
-          </p>
-          <ul className="space-y-1">
-            {recentTrades.map((t) => (
-              <li
-                key={`${t.side}-${t.entryTime}-${t.exitTime}`}
-                className="flex flex-wrap gap-x-2 gap-y-0.5"
-              >
-                <span
-                  className="font-semibold"
-                  style={{ color: t.pnlPct >= 0 ? TV.up : TV.down }}
-                >
-                  {t.side}
-                </span>
-                <span>
-                  {formatSignalTime(t.entryTime)} → {formatSignalTime(t.exitTime)}
-                </span>
-                <span>
-                  {formatMoney(t.entryPrice)} → {formatMoney(t.exitPrice)}
-                </span>
-                <span>
-                  {t.pnlPct >= 0 ? "+" : ""}
-                  {t.pnlPct.toFixed(2)}% · ${t.pnlUsdEstimate.toFixed(2)}
-                </span>
-                <span>
-                  {t.durationBars} bars · {t.exitReason}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div ref={containerRef} style={{ height }} />
 
       <div
         className="flex flex-wrap items-center gap-4 border-t px-3 py-1.5 text-[11px]"
         style={{ borderColor: TV.border, background: TV.panel, color: TV.muted }}
       >
-        <span className="inline-flex items-center gap-1.5" style={{ color: TV.up }}>
-          ▲ BUY (while setup holds)
+        <span className="inline-flex items-center gap-1.5" style={{ color: TV.ema9 }}>
+          — EMA9
         </span>
-        <span className="inline-flex items-center gap-1.5" style={{ color: TV.down }}>
-          ▼ SELL (while setup holds)
-        </span>
-        <span className="inline-flex items-center gap-1.5" style={{ color: "#00e676" }}>
-          ● ENTRY
-        </span>
-        <span className="inline-flex items-center gap-1.5" style={{ color: "#b0bec5" }}>
-          ● EXIT (setup broken)
+        <span className="inline-flex items-center gap-1.5" style={{ color: TV.ema21 }}>
+          — EMA21
         </span>
         <span className="ml-auto">
-          {showAllSignals ? "Showing" : "Hidden"} · EXIT when A4 breaks · Source:{" "}
-          {candlesQuery.data?.source ?? "—"} · paper only
+          Lab AUTO · Source: {candlesQuery.data?.source ?? "—"} · paper only
         </span>
       </div>
     </div>

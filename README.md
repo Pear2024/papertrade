@@ -123,6 +123,31 @@ curl http://localhost:8000/ready
 Compose waits for MySQL **healthcheck** before starting the API.  
 The web service waits until the API healthcheck passes.
 
+### Hypothesis Lab free LLM parsing
+
+The Lab always works without an LLM: it falls back to the built-in rules engine.
+LLM credentials are read only by the API server—never put them in
+`NEXT_PUBLIC_*` variables or browser code.
+
+- **Local development (default):** install Ollama, run `ollama pull llama3.2`,
+  and keep `OLLAMA_BASE_URL=http://127.0.0.1:11434` and
+  `OLLAMA_MODEL=llama3.2` in `.env`. The API tries Ollama first and falls back
+  automatically if it is stopped.
+- **Deployed website:** set `ENVIRONMENT=production` and `GROQ_API_KEY` in the
+  API host's `.env`. The production API tries Groq first, so every logged-in
+  website user can generate structured rules without running Ollama locally.
+  `GROQ_MODEL=llama-3.1-8b-instant` is the default.
+- **API in Docker + host Ollama:** `127.0.0.1` points to the API container, not
+  your host. Set `OLLAMA_BASE_URL=http://host.docker.internal:11434` on Docker
+  Desktop, or use the reachable hostname of an Ollama service on the same
+  network.
+
+After changing API environment variables, restart the API:
+
+```bash
+docker compose up -d --build api
+```
+
 ---
 
 ## Migrations
@@ -253,7 +278,7 @@ make reset-db
 - **No** real-money orders  
 - **No** exchange API secrets for live trading  
 - **No** deposit / withdraw  
-- Fees are simulated (`PAPER_TRADING_FEE_PERCENT`, default Kraken Futures Tier 1 taker 0.05%)  
+- Fees are simulated at 0.80% of notional per fill by default (`PAPER_TRADING_FEE_PERCENT=0.80`), based on the confirmed Kraken Pro receipt; flat fee overrides are disabled (`PAPER_TRADING_FEE_USD=0`)
 - Paper leverage (1x–50x) sizes notional as margin × leverage; no funding rate / liquidation engine yet 
 - Prices come from a **public** market API; if it fails, the UI/API will surface a clear error (Phase 3+)  
 - Monetary columns use **Decimal / Numeric** (not float)

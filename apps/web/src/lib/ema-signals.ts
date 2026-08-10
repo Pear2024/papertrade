@@ -29,7 +29,42 @@ export interface EmaSignal {
   time: number;
   side: SignalSide;
   price: number;
+  /** Price level that caused the signal, when distinct from its close/fill price. */
+  triggerPrice?: number;
   reason: string;
+}
+
+/**
+ * CCR chart signals belong to the confirmation candle. Paper execution may
+ * still fill on the following candle's open, but that must not move the arrow.
+ */
+export function detectCcrEntrySignals(
+  candles: CandleOHLC[],
+  consecutive = 3,
+): EmaSignal[] {
+  const n = Math.min(6, Math.max(2, Math.trunc(consecutive) || 3));
+  const signals: EmaSignal[] = [];
+
+  // The last candle may still be forming, so only confirm through its predecessor.
+  for (let confirmationIndex = n; confirmationIndex < candles.length - 1; confirmationIndex += 1) {
+    const confirmation = candles[confirmationIndex];
+    const prior = candles[confirmationIndex - 1];
+    const streak = candles.slice(confirmationIndex - n, confirmationIndex);
+    const buy =
+      confirmation.close > confirmation.open &&
+      confirmation.close > prior.high &&
+      streak.every((c) => c.close < c.open);
+    if (!buy) continue;
+
+    signals.push({
+      time: confirmation.time,
+      side: "buy",
+      price: confirmation.close,
+      triggerPrice: prior.high,
+      reason: `CCR BUY · ${n}-candle reversal · confirmed close · fills next open`,
+    });
+  }
+  return signals;
 }
 
 export interface PhaseEvent {
@@ -56,29 +91,24 @@ export interface CompletedTrade {
 /** Locked hypothesis A4 (must match apps/api coach_brain.py). */
 export const BASIC_EMA_RULES = {
   id: "a4_ema9_close_sep_pct",
-  label: "Live stack · A4 + MetaAlpha ON",
-  /** One-line friend summary of what’s live right now. */
-  stackSummary:
-    "Primary: A4 EMA ENTRY (BUY/SELL) · Filter: MetaAlpha Quantum Engine ON (RF meta-label, take if proba ≥ 0.75) · Exits: SL 2% / TP 3% / $70 TP",
+  label: "A4 story: ENTRY → HOLD → EXIT",
   buy:
-    "A4 ENTRY BUY: flat + uptrend (EMA9>EMA21) + close above EMA9 + |EMA gap| > 0.10% → LONG once",
+    "ENTRY BUY: flat + uptrend (EMA9>EMA21) + close above EMA9 + |EMA gap| over 0.10% → LONG once",
   sell:
-    "A4 ENTRY SELL: flat + downtrend + close below EMA9 + gap → SHORT once · EXIT on opposite / SL / TP",
-  filter:
-    "MetaAlpha Quantum Engine ON — RF meta-label filter; AUTO takes the entry only if proba ≥ 0.75 (bootstrap v1 model)",
+    "ENTRY SELL: flat + downtrend + close below EMA9 + gap → SHORT once · EXIT on opposite / SL / TP",
   alternate: "HOLD LONG/SHORT in history — chart shows ENTRY + EXIT only (no BUY spam)",
-  exits: "EXIT on opposite signal · SL 2% / TP 3% + fee cover · $70 USD TP · fixed stake",
+  exits: "EXIT BUY/SELL once · SL 2% / TP 7.5% + fee cover · fixed stake",
   journal: "Count ENTRY trades only; store entry/exit/PnL/duration/reason",
 } as const;
 
 /** |EMA9−EMA21| as percent of close (same as API EMA_SEPARATION_PCT_MIN). */
 export const EMA_SEPARATION_PCT_MIN = 0.1;
 
-/** Medium exits from entry (Buy): SL −2%, TP +3% + round-trip fee pad. */
+/** Medium exits from entry (Buy): SL −2%, TP +7.5% + round-trip fee pad. */
 export function suggestedExitsFromEntry(entryPrice: number): { sl: string; tp: string } {
   const feeRt = (PAPER_FEE_PCT * 2) / 100;
   const sl = entryPrice * 0.98;
-  const tp = entryPrice * (1.03 + feeRt);
+  const tp = entryPrice * (1.075 + feeRt);
   return {
     sl: String(Math.round(sl)),
     tp: String(Math.round(tp)),
@@ -97,6 +127,58 @@ function a4SideOk(
   const buyOk = ema9 > ema21 && close > ema9 && separationOk;
   const sellOk = ema9 < ema21 && close < ema9 && separationOk;
   return { buyOk, sellOk, sepPct };
+}
+
+/** Diagnose why the latest closed bar is / isn't an A4 ENTRY setup. */
+export function diagnoseClosedBarA4(
+  candles: CandleOHLC[],
+  sepMinPct: number = EMA_SEPARATION_PCT_MIN,
+): {
+  time: number;
+  sepPct: number;
+  sepMinPct: number;
+  buyOk: boolean;
+  sellOk: boolean;
+  trendUp: boolean;
+  closeAboveEma9: boolean;
+  reason: string;
+} | null {
+  if (candles.length < 22) return null;
+  // Skip forming bar (last) — same as detectTradePhases
+  const i = candles.length - 2;
+  if (i < 21) return null;
+  const closes = candles.map((c) => c.close);
+  const ema9 = computeEma(closes, 9);
+  const ema21 = computeEma(closes, 21);
+  const cur9 = ema9[i];
+  const cur21 = ema21[i];
+  if (cur9 == null || cur21 == null) return null;
+  const candle = candles[i];
+  const { buyOk, sellOk, sepPct } = a4SideOk(cur9, cur21, candle.close, sepMinPct);
+  const trendUp = cur9 > cur21;
+  const closeAboveEma9 = candle.close > cur9;
+  let reason: string;
+  if (buyOk) reason = "BUY setup OK on last closed bar (waiting FLAT for ENTRY)";
+  else if (sellOk) reason = "SELL setup OK on last closed bar (waiting FLAT for ENTRY)";
+  else if (sepPct <= sepMinPct) {
+    reason = `No ENTRY — EMA gap ${sepPct.toFixed(3)}% ≤ ${sepMinPct}% (need wider separation)`;
+  } else if (trendUp && !closeAboveEma9) {
+    reason = "No ENTRY — uptrend but close is not above EMA9";
+  } else if (!trendUp && closeAboveEma9) {
+    reason = "No ENTRY — downtrend but close is not below EMA9";
+  } else {
+    reason = "No ENTRY — A4 conditions not met on last closed bar";
+  }
+  return {
+    time: candle.time,
+    sepPct,
+    sepMinPct,
+    buyOk,
+    sellOk,
+    trendUp,
+    closeAboveEma9,
+    reason,
+  };
 }
 
 function stepPosition(
@@ -127,13 +209,13 @@ function stepPosition(
 function phaseLabel(phase: PhaseKind, sepPct: number): string {
   switch (phase) {
     case "ENTRY_BUY":
-      return `ENTRY LONG · gap ${sepPct.toFixed(3)}%`;
+      return `ENTRY BUY · gap ${sepPct.toFixed(3)}%`;
     case "ENTRY_SELL":
-      return `ENTRY SHORT · gap ${sepPct.toFixed(3)}%`;
+      return `ENTRY SELL · gap ${sepPct.toFixed(3)}%`;
     case "HOLD_LONG":
-      return `HOLD LONG · gap ${sepPct.toFixed(3)}%`;
+      return `BUY · gap ${sepPct.toFixed(3)}%`;
     case "HOLD_SHORT":
-      return `HOLD SHORT · gap ${sepPct.toFixed(3)}%`;
+      return `SELL · gap ${sepPct.toFixed(3)}%`;
     case "EXIT_BUY":
       return `EXIT LONG · setup broken · gap ${sepPct.toFixed(3)}%`;
     case "EXIT_SELL":
@@ -240,19 +322,11 @@ export type StoryChartMarker = {
 };
 
 /**
- * Chart markers — ENTRY / EXIT / FLIP only (no HOLD BUY/SELL spam).
- * Optional confidencePct annotates ENTRY markers when provided.
+ * Chart markers:
+ * - ENTRY / EXIT / FLIP with clear labels (no overlap on same candle)
+ * - While setup holds: classic BUY / SELL arrows (only when A4 still true)
  */
-export function buildChartStoryMarkers(
-  phases: PhaseEvent[],
-  opts?: { confidencePct?: number | null; includeHold?: boolean },
-): StoryChartMarker[] {
-  const includeHold = opts?.includeHold === true;
-  const conf =
-    opts?.confidencePct != null && Number.isFinite(opts.confidencePct)
-      ? Math.round(opts.confidencePct)
-      : null;
-
+export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[] {
   const byTime = new Map<number, PhaseEvent[]>();
   for (const ev of phases) {
     if (
@@ -262,7 +336,8 @@ export function buildChartStoryMarkers(
       ev.phase !== "EXIT_SELL" &&
       ev.phase !== "FLIP_TO_SHORT" &&
       ev.phase !== "FLIP_TO_LONG" &&
-      !(includeHold && (ev.phase === "HOLD_LONG" || ev.phase === "HOLD_SHORT"))
+      ev.phase !== "HOLD_LONG" &&
+      ev.phase !== "HOLD_SHORT"
     ) {
       continue;
     }
@@ -272,7 +347,6 @@ export function buildChartStoryMarkers(
   }
 
   const markers: StoryChartMarker[] = [];
-  const confSuffix = conf != null ? ` · ${conf}%` : "";
 
   for (const [time, events] of byTime) {
     const kinds = new Set(events.map((e) => e.phase));
@@ -289,7 +363,7 @@ export function buildChartStoryMarkers(
         position: "aboveBar",
         color: "#ff1744",
         shape: "arrowDown",
-        text: `EXIT LONG → ENTRY SHORT${confSuffix}`,
+        text: "EXIT LONG → ENTRY SHORT",
       });
       continue;
     }
@@ -299,11 +373,12 @@ export function buildChartStoryMarkers(
         position: "belowBar",
         color: "#00e676",
         shape: "arrowUp",
-        text: `EXIT SHORT → ENTRY LONG${confSuffix}`,
+        text: "EXIT SHORT → ENTRY LONG",
       });
       continue;
     }
 
+    // Prefer ENTRY/EXIT labels over HOLD arrows on the same bar.
     if (kinds.has("EXIT_BUY") || kinds.has("EXIT_SELL")) {
       const exit = events.find((e) => e.phase === "EXIT_BUY" || e.phase === "EXIT_SELL")!;
       markers.push({
@@ -321,7 +396,7 @@ export function buildChartStoryMarkers(
         position: "belowBar",
         color: "#00e676",
         shape: "circle",
-        text: `ENTRY LONG${confSuffix}`,
+        text: "ENTRY BUY",
       });
       continue;
     }
@@ -331,29 +406,27 @@ export function buildChartStoryMarkers(
         position: "aboveBar",
         color: "#ff1744",
         shape: "arrowDown",
-        text: `ENTRY SHORT${confSuffix}`,
+        text: "↓ ENTRY SELL",
       });
       continue;
     }
 
-    if (includeHold) {
-      if (kinds.has("HOLD_LONG")) {
-        markers.push({
-          time,
-          position: "belowBar",
-          color: "#26a69a",
-          shape: "arrowUp",
-          text: "HOLD",
-        });
-      } else if (kinds.has("HOLD_SHORT")) {
-        markers.push({
-          time,
-          position: "aboveBar",
-          color: "#ef5350",
-          shape: "arrowDown",
-          text: "HOLD",
-        });
-      }
+    if (kinds.has("HOLD_LONG")) {
+      markers.push({
+        time,
+        position: "belowBar",
+        color: "#26a69a",
+        shape: "arrowUp",
+        text: "BUY",
+      });
+    } else if (kinds.has("HOLD_SHORT")) {
+      markers.push({
+        time,
+        position: "aboveBar",
+        color: "#ef5350",
+        shape: "arrowDown",
+        text: "SELL",
+      });
     }
   }
 
@@ -457,10 +530,10 @@ export function alternateSignals(signals: EmaSignal[]): EmaSignal[] {
 
 export function formatPhaseDisplay(phase: string): string {
   const map: Record<string, string> = {
-    ENTRY_BUY: "ENTRY LONG",
-    ENTRY_SELL: "ENTRY SHORT",
-    HOLD_LONG: "HOLD LONG",
-    HOLD_SHORT: "HOLD SHORT",
+    ENTRY_BUY: "ENTRY BUY",
+    ENTRY_SELL: "ENTRY SELL",
+    HOLD_LONG: "BUY",
+    HOLD_SHORT: "SELL",
     EXIT_BUY: "EXIT LONG",
     EXIT_SELL: "EXIT SHORT",
     FLIP_TO_SHORT: "EXIT LONG → ENTRY SHORT",

@@ -46,7 +46,7 @@ export function PostTradeStats({ className }: Props) {
               <Stat label="Total P/L" value={<PnlText value={stats.net_profit} />} />
               <Stat
                 label="Avg risk:reward"
-                value={stats.avg_risk_reward ?? stats.planned_risk_reward ?? "1:1.5"}
+                value={stats.avg_risk_reward ?? stats.planned_risk_reward ?? "1:2.5"}
               />
               <Stat
                 label="Drawdown"
@@ -75,6 +75,25 @@ export function PostTradeStats({ className }: Props) {
                 Last reason: {stats.last_exit_reason}
               </p>
             )}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Entry × filter-set paper comparison</p>
+              {(stats.variant_stats ?? []).length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No closed trades with an experiment snapshot yet.
+                </p>
+              ) : (
+                (stats.variant_stats ?? []).map((variant) => (
+                  <div key={variant.filter_set_id} className="rounded-md border px-3 py-2 text-xs">
+                    <p className="font-medium">{variant.filter_set_id}</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {variant.trades} trades · WR {variant.win_rate ?? "—"} · avg P/L{" "}
+                      {variant.avg_pnl != null ? formatMoney(variant.avg_pnl) : "—"} · net{" "}
+                      {variant.net_pnl != null ? formatMoney(variant.net_pnl) : "—"}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
           </>
         )}
       </CardContent>

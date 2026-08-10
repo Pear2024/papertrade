@@ -4,11 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useRouter } from "next/navigation";
 
 import { api, getToken, setToken } from "@/lib/api";
-import { AuthUser } from "@/lib/types";
+import { ApiError, AuthUser } from "@/lib/types";
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
+  apiError: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
@@ -21,9 +22,12 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
   const router = useRouter();
 
   const refresh = useCallback(async () => {
+    setLoading(true);
+    setApiError(null);
     const token = getToken();
     if (!token) {
       setUser(null);
@@ -33,9 +37,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const me = await api.me();
       setUser(me);
-    } catch {
-      setToken(null);
+    } catch (error) {
       setUser(null);
+      if (error instanceof ApiError && error.status === 401) {
+        setToken(null);
+      } else {
+        setApiError(
+          error instanceof Error
+            ? error.message
+            : "Unable to reach the API. Check that the API service is running.",
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -76,13 +88,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       loading,
+      apiError,
       isAuthenticated: !!user,
       login,
       register,
       logout,
       refresh,
     }),
-    [user, loading, login, register, logout, refresh],
+    [user, loading, apiError, login, register, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -136,8 +136,8 @@ def get_overview(db: Session, user: User) -> AnalyticsOverview:
     note = None
     if len(sells) < 20:
         note = (
-            f"ช่วงนี้มีข้อมูลไม่เพียงพอสำหรับสรุปแน่นหนา "
-            f"(sell trades = {len(sells)}; แนะนำอย่างน้อย 20)"
+            f"Not enough data yet for a reliable conclusion "
+            f"(sell trades = {len(sells)}; at least 20 recommended)."
         )
 
     return AnalyticsOverview(

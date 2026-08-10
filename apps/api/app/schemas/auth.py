@@ -41,6 +41,7 @@ class UserResponse(BaseModel):
     id: int
     email: EmailStr
     display_name: str
+    subscription_plan: str = "free"
     created_at: datetime
     trading_account: TradingAccountSummary | None = None
 

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8f6fc"/>
+      <stop offset="55%" stop-color="#f8fafc"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <rect x="0" y="0" width="960" height="88" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="24" y="30" font-size="16" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Paper Crypto Coach</text>
+  <text x="900" y="30" text-anchor="end" font-size="12" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Paper only</text>
+  <rect x="16" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="60" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Dashboard</text>
+<rect x="110" y="52" width="88" height="28" rx="6" fill="#d6eef8" stroke="#0b7ea8"/>
+    <text x="154" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#086484">Market</text>
+<rect x="204" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="248" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Desk</text>
+<rect x="298" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="342" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Portfolio</text>
+<rect x="392" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="436" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">History</text>
+<rect x="486" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="530" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Journal</text>
+<rect x="580" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="624" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Coach</text>
+<rect x="674" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="718" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Lab</text>
+<rect x="768" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="812" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Analytics</text>
+<rect x="862" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="906" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Settings</text>
+  <text x="24" y="120" font-size="22" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Market</text>
+  <text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Lab paper AUTO on any listed coin — pick a matching promoted profile.</text>
+     <rect x="24" y="168" width="52" height="28" rx="6" fill="#0b7ea8"/><text x="50" y="187" text-anchor="middle" font-size="12" fill="#fff" font-family="Segoe UI,Arial,sans-serif">BTC</text>
+     <rect x="84" y="168" width="52" height="28" rx="6" fill="#fff" stroke="#d0d7e2"/><text x="110" y="187" text-anchor="middle" font-size="12" fill="#334155" font-family="Segoe UI,Arial,sans-serif">ETH</text>
+     <rect x="144" y="168" width="52" height="28" rx="6" fill="#fff" stroke="#d0d7e2"/><text x="170" y="187" text-anchor="middle" font-size="12" fill="#334155" font-family="Segoe UI,Arial,sans-serif">SOL</text>
+     <rect x="780" y="168" width="156" height="28" rx="6" fill="#e2e8f0"/><text x="858" y="187" text-anchor="middle" font-size="12" fill="#334155" font-family="Segoe UI,Arial,sans-serif">Manual ticket · BTC</text>
+     <rect x="24" y="214" width="560" height="260" rx="12" fill="#0f172a"/>
+     <path d="M50 400 L110 360 L170 380 L240 300 L310 320 L390 250 L470 270 L540 220" fill="none" stroke="#38bdf8" stroke-width="2"/>
+     <text x="40" y="240" font-size="12" fill="#94a3b8" font-family="Segoe UI,Arial,sans-serif">15m chart</text>
+     <rect x="600" y="214" width="336" height="260" rx="12" fill="#fff" stroke="#dbe3ee"/>
+     <text x="618" y="244" font-size="14" font-weight="600" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">BTC · Lab paper AUTO</text>
+     <rect x="618" y="260" width="80" height="22" rx="11" fill="#0b7ea8"/><text x="658" y="275" text-anchor="middle" font-size="11" fill="#fff" font-family="Segoe UI,Arial,sans-serif">AUTO ON</text>
+     <text x="618" y="312" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Lab profile</text>
+     <rect x="618" y="322" width="200" height="28" rx="6" fill="#f8fafc" stroke="#d0d7e2"/>
+     <text x="630" y="341" font-size="12" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">EMA Cross v2</text>
+     <rect x="618" y="372" width="300" height="70" rx="8" fill="#ecfdf5" stroke="#86efac"/>
+     <text x="632" y="402" font-size="13" font-weight="600" fill="#047857" font-family="Segoe UI,Arial,sans-serif">WAIT · closed candle</text>
+     <text x="632" y="424" font-size="11" fill="#065f46" font-family="Segoe UI,Arial,sans-serif">Promote in Lab → choose profile → AUTO</text>
+  <text x="24" y="525" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#94a3b8">UI illustration · Paper Crypto Coach User Guide</text>
+</svg>

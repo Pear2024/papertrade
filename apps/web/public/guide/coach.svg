@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8f6fc"/>
+      <stop offset="55%" stop-color="#f8fafc"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <rect x="0" y="0" width="960" height="88" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="24" y="30" font-size="16" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Paper Crypto Coach</text>
+  <text x="900" y="30" text-anchor="end" font-size="12" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Paper only</text>
+  <rect x="16" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="60" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Dashboard</text>
+<rect x="110" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="154" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Market</text>
+<rect x="204" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="248" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Desk</text>
+<rect x="298" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="342" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Portfolio</text>
+<rect x="392" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="436" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">History</text>
+<rect x="486" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="530" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Journal</text>
+<rect x="580" y="52" width="88" height="28" rx="6" fill="#d6eef8" stroke="#0b7ea8"/>
+    <text x="624" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#086484">Coach</text>
+<rect x="674" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="718" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Lab</text>
+<rect x="768" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="812" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Analytics</text>
+<rect x="862" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="906" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Settings</text>
+  <text x="24" y="120" font-size="22" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Coach</text>
+  <text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Lab paper AUTO — same desk as Market. Hypothesis Lab prompts drive entries.</text>
+     <rect x="24" y="168" width="210" height="70" rx="10" fill="#fff" stroke="#dbe3ee"/><text x="40" y="196" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Win rate</text><text x="40" y="220" font-size="18" font-weight="700" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">54.2%</text>
+     <rect x="250" y="168" width="210" height="70" rx="10" fill="#fff" stroke="#dbe3ee"/><text x="266" y="196" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Paper trades</text><text x="266" y="220" font-size="18" font-weight="700" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">86 / 200</text>
+     <rect x="476" y="168" width="210" height="70" rx="10" fill="#fff" stroke="#dbe3ee"/><text x="492" y="196" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Net profit</text><text x="492" y="220" font-size="18" font-weight="700" fill="#059669" font-family="Segoe UI,Arial,sans-serif">$412.08</text>
+     <rect x="702" y="168" width="234" height="70" rx="10" fill="#fff" stroke="#dbe3ee"/><text x="718" y="196" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Max drawdown</text><text x="718" y="220" font-size="18" font-weight="700" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">$286.40</text>
+     <rect x="24" y="260" width="912" height="200" rx="12" fill="#fff" stroke="#dbe3ee"/>
+     <text x="44" y="292" font-size="15" font-weight="600" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">BTC · Lab paper AUTO</text>
+     <rect x="860" y="274" width="56" height="22" rx="11" fill="#0b7ea8"/><text x="888" y="289" text-anchor="middle" font-size="11" fill="#fff" font-family="Segoe UI,Arial,sans-serif">AUTO</text>
+     <text x="44" y="328" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">1. Promote profile in Lab · 2. Select it here · 3. Keep page open for ticks</text>
+     <rect x="44" y="350" width="280" height="36" rx="8" fill="#f8fafc" stroke="#d0d7e2"/><text x="58" y="373" font-size="12" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Profile: RSI Pullback v1</text>
+     <rect x="44" y="400" width="320" height="40" rx="8" fill="#059669"/><text x="204" y="425" text-anchor="middle" font-size="13" font-weight="600" fill="#fff" font-family="Segoe UI,Arial,sans-serif">Turn AUTO on</text>
+  <text x="24" y="525" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#94a3b8">UI illustration · Paper Crypto Coach User Guide</text>
+</svg>

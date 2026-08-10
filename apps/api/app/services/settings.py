@@ -40,7 +40,7 @@ def get_settings_response(db: Session, user: User) -> AccountSettingsResponse:
         trading_enabled=rules.trading_enabled,
         paper_mode_banner=(
             "PAPER MODE — NO REAL ORDERS. "
-            "เงินทั้งหมดเป็นเงินจำลอง — Kraken public market data only, no API keys, no real orders."
+            "All balances are simulated — Kraken public market data only, no API keys, no real orders."
         ),
     )
 

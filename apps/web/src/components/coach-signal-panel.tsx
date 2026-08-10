@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -9,10 +10,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { TradeChecklist } from "@/components/trade-checklist";
 import { BarCountdown } from "@/components/bar-countdown";
+import { useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
+import { coachSettingsToApiParams, saveLabHypothesisId } from "@/lib/coach-settings";
 import { formatMoney } from "@/lib/format";
 import { CandleInterval } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const INTERVALS: CandleInterval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
 
@@ -25,13 +29,47 @@ type Props = {
 
 export function CoachSignalPanel({
   symbol,
-  interval = "15m",
+  interval: intervalProp,
   onIntervalChange,
   onApplyExits,
 }: Props) {
+  const { settings, update } = useCoachSettings();
+  const interval = intervalProp ?? settings.interval;
+  const ruleOpts = coachSettingsToApiParams(settings, symbol);
+
+  const labQuery = useQuery({
+    queryKey: ["hypothesis-lab"],
+    queryFn: api.hypothesisLab,
+    staleTime: 30_000,
+  });
+  const promotedLab = (labQuery.data?.items ?? []).filter((item) => item.promoted_at);
+  const activeLab =
+    promotedLab.find((item) => item.id === settings.labHypothesisId) ?? promotedLab[0];
+
   const coachQuery = useQuery({
-    queryKey: ["coach-signal", symbol, interval],
-    queryFn: () => api.coachSignal(symbol, interval),
+    queryKey: [
+      "coach-signal",
+      symbol,
+      interval,
+      ruleOpts.sl_pct,
+      ruleOpts.tp_pct,
+      ruleOpts.min_net_rr,
+      ruleOpts.slippage_bps,
+      ruleOpts.spread_bps,
+      "lab",
+      activeLab?.id,
+    ],
+    queryFn: () =>
+      api.coachSignal(symbol, interval, {
+        slPct: ruleOpts.sl_pct,
+        tpPct: ruleOpts.tp_pct,
+        minNetRr: ruleOpts.min_net_rr,
+        slippageBps: ruleOpts.slippage_bps,
+        spreadBps: ruleOpts.spread_bps,
+        entrySource: "lab",
+        hypothesisId: activeLab?.id,
+      }),
+    enabled: Boolean(activeLab?.id),
     refetchInterval: 20_000,
   });
 
@@ -47,15 +85,11 @@ export function CoachSignalPanel({
       ? phase.replaceAll("_", " ")
       : entry === "ENTRY_BUY"
         ? "ENTRY BUY"
-        : entry === "ENTRY_SELL"
-          ? "ENTRY SELL"
-          : trend === "HOLD_LONG" || trend === "BUY_TREND"
-            ? "HOLD LONG"
-            : trend === "HOLD_SHORT" || trend === "SELL_TREND"
-              ? "HOLD SHORT"
-              : exitKind !== "NONE"
-                ? exitKind.replaceAll("_", " ")
-                : signal;
+        : trend === "HOLD_LONG" || trend === "BUY_TREND"
+          ? "HOLD LONG"
+          : exitKind !== "NONE"
+            ? exitKind.replaceAll("_", " ")
+            : signal;
   const tone =
     phase === "ENTRY_BUY" ||
     phase === "HOLD_LONG" ||
@@ -63,31 +97,34 @@ export function CoachSignalPanel({
     trend === "HOLD_LONG" ||
     trend === "BUY_TREND"
       ? "text-emerald-600"
-      : phase === "ENTRY_SELL" ||
-          phase === "HOLD_SHORT" ||
-          entry === "ENTRY_SELL" ||
-          trend === "HOLD_SHORT" ||
-          trend === "SELL_TREND"
-        ? "text-red-600"
-        : phase.startsWith("EXIT") || exitKind.startsWith("EXIT")
-          ? "text-slate-500"
-          : "text-amber-600";
+      : phase.startsWith("EXIT") || exitKind.startsWith("EXIT")
+        ? "text-slate-500"
+        : "text-amber-600";
+
+  const handleInterval = (iv: CandleInterval) => {
+    if (onIntervalChange) onIntervalChange(iv);
+    else update({ interval: iv });
+  };
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <CardTitle>DayTradeCrypto Coach</CardTitle>
+            <CardTitle>Hypothesis Lab signal</CardTitle>
             <CardDescription>
-              A4 story: ENTRY once → HOLD → EXIT (opposite / SL / TP). No BUY/SELL spam.
+              Paper signals from your promoted Lab profile. Create prompts in{" "}
+              <Link href="/lab" className="underline underline-offset-4">
+                Lab
+              </Link>
+              .
             </CardDescription>
           </div>
           <Badge variant="secondary">{symbol}</Badge>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap items-center gap-2">
           {INTERVALS.map((iv) => (
             <Button
               key={iv}
@@ -95,16 +132,38 @@ export function CoachSignalPanel({
               size="sm"
               variant={interval === iv ? "default" : "outline"}
               className="h-7 px-2 text-xs"
-              onClick={() => onIntervalChange?.(iv)}
+              onClick={() => handleInterval(iv)}
             >
               {iv}
             </Button>
           ))}
+          {promotedLab.length > 0 ? (
+            <Select
+              value={activeLab?.id ?? ""}
+              onValueChange={(id) => saveLabHypothesisId(id)}
+            >
+              <SelectTrigger className="h-7 min-w-44 text-xs">
+                <SelectValue placeholder="Lab profile" />
+              </SelectTrigger>
+              <SelectContent>
+                {promotedLab.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.name} v{item.version}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Button asChild size="sm" variant="outline" className="h-7 text-xs">
+              <Link href="/lab">Promote a Lab profile</Link>
+            </Button>
+          )}
           <Button
             type="button"
             size="sm"
             variant="secondary"
             className="h-7 px-2 text-xs"
+            disabled={!activeLab}
             onClick={() => coachQuery.refetch()}
           >
             Refresh
@@ -113,15 +172,22 @@ export function CoachSignalPanel({
 
         <BarCountdown interval={interval} />
 
-        {coachQuery.isLoading && <Skeleton className="h-28 w-full" />}
-        {coachQuery.isError && (
+        {!activeLab ? (
+          <Alert>
+            <AlertTitle>No promoted Lab profile</AlertTitle>
+            <AlertDescription>
+              Built-in A4/CCR entry strategies are retired. Open Lab, write your rules, backtest,
+              then save a paper profile.
+            </AlertDescription>
+          </Alert>
+        ) : coachQuery.isLoading ? (
+          <Skeleton className="h-28 w-full" />
+        ) : coachQuery.isError ? (
           <Alert variant="destructive">
             <AlertTitle>Coach unavailable</AlertTitle>
             <AlertDescription>{(coachQuery.error as Error).message}</AlertDescription>
           </Alert>
-        )}
-
-        {data && (
+        ) : data ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
@@ -131,16 +197,8 @@ export function CoachSignalPanel({
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Confidence: <strong>{data.confidence}%</strong>
-                  {data.rf_proba != null
-                    ? ` · RF Probability: ${data.rf_proba.toFixed(2)}`
-                    : " · RF Probability: N/A"}
-                  {data.regime_label ? ` · ${data.regime_label}` : ""}
+                  {activeLab ? ` · ${activeLab.name} v${activeLab.version}` : ""}
                 </p>
-                {data.entry_price ? (
-                  <p className="text-sm text-muted-foreground">
-                    Entry: <strong>{formatMoney(data.entry_price)}</strong>
-                  </p>
-                ) : null}
               </div>
               <div className="text-right text-sm">
                 <p>Price {formatMoney(data.price)}</p>
@@ -149,14 +207,6 @@ export function CoachSignalPanel({
                 </p>
               </div>
             </div>
-
-            {data.reasons && data.reasons.length > 0 ? (
-              <ul className="list-inside list-disc space-y-0.5 rounded-md border bg-muted/20 px-3 py-2 text-xs">
-                {data.reasons.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-            ) : null}
 
             <Alert variant={data.signal === "WAIT" ? "warning" : "default"}>
               <AlertTitle>Short reason</AlertTitle>
@@ -168,18 +218,14 @@ export function CoachSignalPanel({
               </AlertDescription>
             </Alert>
 
-            <p className="rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs">
-              COFR: {data.cofr}
-            </p>
-
             <div className="grid gap-2 text-sm sm:grid-cols-2">
-              <p>EMA9: {data.ema9 ? formatMoney(data.ema9) : "—"}</p>
-              <p>EMA21: {data.ema21 ? formatMoney(data.ema21) : "—"}</p>
-              <p>Volume: {data.volume ?? "—"}</p>
-              <p>Vol avg20: {data.volume_avg20 ?? "—"}</p>
               <p>Stop Loss: {data.stop_loss ? formatMoney(data.stop_loss) : "—"}</p>
               <p>Take Profit: {data.take_profit ? formatMoney(data.take_profit) : "—"}</p>
-              <p>Risk:Reward: {data.risk_reward ?? "—"}</p>
+              <p>Gross R:R: {data.gross_risk_reward ?? data.risk_reward ?? "—"}</p>
+              <p>
+                Net R:R: {data.net_risk_reward ?? "—"}
+                {data.rr_blocked ? " · blocked" : ""}
+              </p>
               <p className="text-muted-foreground">Source: {data.source}</p>
             </div>
 
@@ -198,16 +244,11 @@ export function CoachSignalPanel({
               </Button>
             )}
 
-            <p className="text-xs text-muted-foreground">
-              Signal: <strong className={tone}>{data.signal}</strong> · Confidence{" "}
-              <strong>{data.confidence}%</strong>
-            </p>
-
             {data.checklist && data.checklist.length > 0 && (
               <TradeChecklist items={data.checklist} className="border-0 shadow-none" />
             )}
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

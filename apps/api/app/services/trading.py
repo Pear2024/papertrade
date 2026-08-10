@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -48,9 +49,24 @@ from app.services.prices import PriceQuote, get_price_quote, record_price_snapsh
 
 
 def _paper_fee(gross: Decimal) -> Decimal:
-    """Flat USD fee when configured; otherwise percent of notional."""
+    """Percent-of-notional paper fee; an explicit flat USD setting overrides it."""
     s = get_settings()
     return calculate_fee(gross, s.paper_trading_fee_percent, s.paper_trading_fee_usd)
+
+
+def _quote_for_execution_price(
+    quote: PriceQuote, execution_price: Decimal | None
+) -> PriceQuote:
+    """Use a strategy's already-observed fill price for paper execution only."""
+    if execution_price is None:
+        return quote
+    price = to_decimal(execution_price)
+    if price <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="execution_price must be positive",
+        )
+    return replace(quote, price=price, source="strategy_fill")
 
 
 # Parallel paper A/B accounts (same user). Default resolver stays on A / first account.
@@ -605,6 +621,7 @@ async def execute_buy(
     payload: OrderRequest,
     *,
     account: TradingAccount | None = None,
+    execution_price: Decimal | None = None,
 ) -> OrderResponse:
     """Open/add LONG, or buy-to-cover an existing SHORT (paper only)."""
     account = account or get_paper_account_for_user(db, user)
@@ -615,6 +632,7 @@ async def execute_buy(
 
     asset = require_asset(db, payload.symbol)
     quote = await get_price_quote(db, asset.symbol)
+    quote = _quote_for_execution_price(quote, execution_price)
     qty, margin, _notional, leverage = _resolve_size(payload, quote.price)
 
     position = get_position(db, account.id, asset.id)
@@ -873,6 +891,7 @@ async def execute_sell(
     payload: OrderRequest,
     *,
     account: TradingAccount | None = None,
+    execution_price: Decimal | None = None,
 ) -> OrderResponse:
     """Close LONG, or open SHORT when flat (paper only)."""
     account = account or get_paper_account_for_user(db, user)
@@ -883,6 +902,7 @@ async def execute_sell(
 
     asset = require_asset(db, payload.symbol)
     quote = await get_price_quote(db, asset.symbol)
+    quote = _quote_for_execution_price(quote, execution_price)
     qty, margin, _notional, leverage = _resolve_size(payload, quote.price)
 
     position = get_position(db, account.id, asset.id)

@@ -4,6 +4,7 @@ export interface AuthUser {
   id: number;
   email: string;
   display_name: string;
+  subscription_plan?: "free" | "pro" | string;
   created_at: string;
   trading_account: {
     id: number;
@@ -231,7 +232,7 @@ export interface AccountSettings {
   starting_balance: MoneyString;
   cash_balance: MoneyString;
   trading_fee_percent: MoneyString;
-  /** Flat USD fee per fill when > 0 (preferred over percent). */
+  /** Optional flat USD fee per fill; when > 0, overrides the percent model. */
   trading_fee_usd?: MoneyString;
   trading_fee_editable: boolean;
   max_risk_percent_per_trade: MoneyString;
@@ -285,103 +286,18 @@ export interface CoachSignal {
   /** EXIT_BUY|EXIT_SELL|NONE */
   exit?: string;
   exit_reason?: string | null;
-  /** Observability */
-  reasons?: string[];
-  rf_proba?: number | null;
-  regime?: number | null;
-  regime_label?: string | null;
-  signal_candidate?: string | null;
-  ema_gap_pct?: number | null;
-  entry_price?: MoneyString | null;
-  confidence_source?: string;
-  primary_confidence?: number | null;
-  meta_alpha?: MetaAlphaGate | null;
-  tp_progress?: number | null;
-  position_state?: string;
-  hold?: HoldPanel | null;
-}
-
-export interface MetaAlphaGate {
-  take: number;
-  proba: number | null;
-  regime: number | null;
-  regime_label: string | null;
-  reason: string;
-  warm: boolean;
-}
-
-export interface HoldPanel {
-  side: string;
-  entry_price: MoneyString;
-  current_price: MoneyString;
-  pnl_pct: number;
-  pnl_usd?: number | null;
-  time_in_trade_sec?: number | null;
-  stop_loss?: MoneyString | null;
-  take_profit?: MoneyString | null;
-  risk_reward?: string | null;
-  tp_progress?: number | null;
-}
-
-export interface CoachDecisionAuditItem {
-  id: number;
-  symbol: string;
-  interval: string;
-  brain: string;
-  strategy: string;
-  evaluated_bar_time: number;
-  signal: string;
-  signal_candidate?: string | null;
-  phase?: string | null;
-  position_state?: string | null;
-  final_action: string;
-  rejection_reason?: string | null;
-  confidence: number;
-  rf_proba?: number | null;
-  regime?: number | null;
-  regime_label?: string | null;
-  reasons?: string[];
-  price?: MoneyString | null;
-  ema9?: MoneyString | null;
-  ema21?: MoneyString | null;
-  ema_gap_pct?: MoneyString | null;
-  stop_loss?: MoneyString | null;
-  take_profit?: MoneyString | null;
-  risk_reward?: string | null;
-  auto_action?: string | null;
-  order_id?: number | null;
-  account_id?: number | null;
-  bar_closed?: boolean;
-  created_at?: string | null;
-  updated_at?: string | null;
-}
-
-export interface CoachDecisionAudit {
-  paper_only: boolean;
-  count: number;
-  items: CoachDecisionAuditItem[];
-}
-
-export interface CoachTradeJournalItem {
-  id: number;
-  symbol: string;
-  side: string;
-  entry_time?: string | null;
-  exit_time?: string | null;
-  entry_price?: MoneyString | null;
-  exit_price?: MoneyString | null;
-  net_pnl?: MoneyString | null;
-  exit_reason?: string | null;
-  confidence?: number | null;
-  regime_label?: string | null;
-  duration_sec?: number | null;
-  order_id?: number | null;
-}
-
-export interface CoachTradeJournal {
-  paper_only: boolean;
-  count: number;
-  items: CoachTradeJournalItem[];
+  entry_setup?: "a4" | "ccr" | string | null;
+  entry_fill?: "close" | "next_open" | string | null;
+  entry_fill_price?: MoneyString | null;
+  gross_risk_reward?: string | null;
+  net_risk_reward?: string | null;
+  rr_blocked?: boolean;
+  filter_blocked?: boolean;
+  filters_enabled?: Record<string, boolean>;
+  filter_results?: {
+    id: string; label: string; enabled: boolean; passed: boolean; applicable: boolean; reason: string;
+  }[];
+  filter_set_id?: string | null;
 }
 
 export interface CoachSignalHistoryItem {
@@ -457,6 +373,15 @@ export interface CoachStats {
   journaled_exits?: number;
   avg_risk_reward?: string | null;
   planned_risk_reward?: string;
+  variant_stats?: {
+    filter_set_id: string;
+    entry_signal: string | null;
+    filters_enabled: Record<string, boolean>;
+    trades: number;
+    win_rate: MoneyString | null;
+    avg_pnl: MoneyString | null;
+    net_pnl: MoneyString | null;
+  }[];
 }
 
 export interface CoachAutoTick {
@@ -478,18 +403,53 @@ export interface CoachAutoTick {
   take_profit?: string | null;
   position_side?: string | null;
   logs?: string[];
-  reasons?: string[];
-  rf_proba?: number | null;
-  regime?: number | null;
-  regime_label?: string | null;
-  entry_price?: string | null;
-  confidence_source?: string | null;
-  primary_confidence?: number | null;
-  meta_alpha?: MetaAlphaGate | null;
-  tp_progress?: number | null;
-  hold?: HoldPanel | null;
-  ema_gap_pct?: number | null;
-  signal_candidate?: string | null;
+  gross_risk_reward?: string | null;
+  net_risk_reward?: string | null;
+  rr_blocked?: boolean;
+  filter_blocked?: boolean;
+  filters_enabled?: Record<string, boolean>;
+  filter_results?: {
+    id: string; label: string; enabled: boolean; passed: boolean; applicable: boolean; reason: string;
+  }[];
+  filter_set_id?: string | null;
+  entry_source?: "a4" | "ccr" | "lab" | string | null;
+  hypothesis_id?: string | null;
+  hypothesis_version?: string | null;
+}
+
+export interface HypothesisBacktest {
+  id: string;
+  ran_at: string;
+  bars: number;
+  verdict: string;
+  trade_count: number;
+  methodology: string;
+  periods: Record<string, {
+    trades: number; win_rate: number; net_pnl: number; expectancy: number;
+    profit_factor: number | null; max_drawdown: number;
+  }>;
+}
+
+export interface HypothesisLabItem {
+  id: string;
+  version: string;
+  name: string;
+  natural_language_prompt: string;
+  structured_rules: Record<string, unknown>;
+  parser: "ollama" | "groq" | "gemini" | "regex" | string;
+  created_at: string;
+  updated_at: string;
+  backtests: HypothesisBacktest[];
+  promoted_at: string | null;
+  paper_profile?: Record<string, unknown> | null;
+}
+
+export interface HypothesisLabAccess {
+  plan: "free" | "pro" | string;
+  backtests_today: number;
+  daily_backtest_limit: number | null;
+  can_promote: boolean;
+  upgrade_message: string | null;
 }
 
 export class ApiError extends Error {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/types";
+import { api } from "@/lib/api";
 
 const schema = z.object({
   display_name: z.string().min(1).max(120),
@@ -26,6 +27,7 @@ type FormValues = z.infer<typeof schema>;
 export default function RegisterPage() {
   const { register: registerUser, isAuthenticated, loading } = useAuth();
   const router = useRouter();
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const {
     register,
     handleSubmit,
@@ -38,6 +40,12 @@ export default function RegisterPage() {
   useEffect(() => {
     if (!loading && isAuthenticated) router.replace("/dashboard");
   }, [loading, isAuthenticated, router]);
+
+  useEffect(() => {
+    void api.googleAuthConfig().then((config) => setGoogleEnabled(config.enabled)).catch(() => {
+      setGoogleEnabled(false);
+    });
+  }, []);
 
   const onSubmit = handleSubmit(async (values) => {
     try {
@@ -95,6 +103,23 @@ export default function RegisterPage() {
                 {isSubmitting ? "Creating…" : "Create paper account"}
               </Button>
             </form>
+            {googleEnabled && (
+              <>
+                <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
+                  <div className="h-px flex-1 bg-border" />
+                  <span>OR</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+                <Button
+                  className="w-full"
+                  type="button"
+                  variant="outline"
+                  onClick={() => window.location.assign(api.googleAuthStartUrl())}
+                >
+                  Continue with Google
+                </Button>
+              </>
+            )}
             <p className="mt-4 text-sm text-muted-foreground">
               Already have an account?{" "}
               <Link className="text-primary underline-offset-4 hover:underline" href="/login">

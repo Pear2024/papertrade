@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8f6fc"/>
+      <stop offset="55%" stop-color="#f8fafc"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <rect x="0" y="0" width="960" height="88" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="24" y="30" font-size="16" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Paper Crypto Coach</text>
+  <text x="900" y="30" text-anchor="end" font-size="12" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Paper only</text>
+  <rect x="16" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="60" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Dashboard</text>
+<rect x="110" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="154" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Market</text>
+<rect x="204" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="248" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Desk</text>
+<rect x="298" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="342" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Portfolio</text>
+<rect x="392" y="52" width="88" height="28" rx="6" fill="#d6eef8" stroke="#0b7ea8"/>
+    <text x="436" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#086484">History</text>
+<rect x="486" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="530" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Journal</text>
+<rect x="580" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="624" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Coach</text>
+<rect x="674" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="718" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Lab</text>
+<rect x="768" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="812" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Analytics</text>
+<rect x="862" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="906" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Settings</text>
+  <text x="24" y="120" font-size="22" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">History</text>
+  <text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Every paper fill — filter by symbol, side, P&amp;L, and date.</text>
+     <rect x="24" y="168" width="140" height="34" rx="8" fill="#fff" stroke="#d0d7e2"/><text x="38" y="190" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Symbol: all</text>
+     <rect x="176" y="168" width="140" height="34" rx="8" fill="#fff" stroke="#d0d7e2"/><text x="190" y="190" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Side: all</text>
+     <rect x="328" y="168" width="140" height="34" rx="8" fill="#fff" stroke="#d0d7e2"/><text x="342" y="190" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">P&amp;L: all</text>
+     <rect x="24" y="220" width="912" height="250" rx="12" fill="#fff" stroke="#dbe3ee"/>
+     <text x="40" y="250" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Time                 Symbol   Side    Qty      Price      Fee      Realized</text>
+     <line x1="40" y1="262" x2="910" y2="262" stroke="#e2e8f0"/>
+     <text x="40" y="292" font-size="13" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Aug 9 14:02          BTC      BUY     0.05     64820      $5.18    —</text>
+     <text x="40" y="324" font-size="13" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Aug 9 15:41          BTC      SELL    0.05     65110      $5.21    +$9.20</text>
+     <text x="40" y="356" font-size="13" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Aug 9 16:08          ETH      BUY     0.80     3410       $2.18    —</text>
+     <text x="40" y="420" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Includes manual Desk trades and Lab AUTO entries/exits</text>
+  <text x="24" y="525" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#94a3b8">UI illustration · Paper Crypto Coach User Guide</text>
+</svg>

@@ -10,14 +10,20 @@ import Link from "next/link";
 import { PaperBanner } from "@/components/layout/paper-banner";
 import { useCoachSettings } from "@/hooks/use-coach-settings";
 import {
-  DEFAULT_COACH_SETTINGS,
   type CoachSettings,
   normalizeCoachSettings,
+  restoreCoachDefaults,
   saveCoachSettings,
 } from "@/lib/coach-settings";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -146,17 +152,19 @@ export default function SettingsPage() {
   });
 
   const saveCoach = () => {
-    const next = saveCoachSettings(normalizeCoachSettings(coachForm));
+    const { entrySignal: _entrySignal, ...editableSettings } =
+      normalizeCoachSettings(coachForm);
+    const next = saveCoachSettings(editableSettings);
     setCoachForm(next);
     setCoachMsg(
-      `Coach auto saved · ${next.interval} · tick ${next.autoTickSeconds}s · stake $${next.autoStakeUsd} · ${next.leverage}x · SL ${next.slPct}% / TP ${next.tpPct}% · $TP $${next.tpUsd} · EMA gap ${next.emaSeparationPct}%`,
+      `Coach auto saved · Lab · ${next.interval} · tick ${next.autoTickSeconds}s · stake $${next.autoStakeUsd} · ${next.leverage}x · SL ${next.slPct}% / TP ${next.tpPct}% · min net R:R ${next.minNetRr} · slip ${next.slippageBps}bps · spread ${next.spreadBps}bps`,
     );
   };
 
   const resetCoachDefaults = () => {
-    const next = saveCoachSettings({ ...DEFAULT_COACH_SETTINGS });
+    const next = restoreCoachDefaults();
     setCoachForm(next);
-    setCoachMsg("Coach auto restored to A4 defaults.");
+    setCoachMsg("Coach auto restored to Lab defaults.");
   };
 
   if (settingsQuery.isLoading) return <Skeleton className="h-80 w-full" />;
@@ -174,12 +182,17 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Risk rules, coach auto defaults, and paper account controls. Starting balance default is
-          $20,000.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+          <p className="text-sm text-muted-foreground">
+            Risk rules, coach auto defaults, and paper account controls. Starting balance
+            default is $20,000.
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/guide">Open User Guide</Link>
+        </Button>
       </div>
 
       <PaperBanner message={settings.paper_mode_banner} />
@@ -207,11 +220,11 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>Coach auto</CardTitle>
           <CardDescription>
-            Used by Market / Coach while AUTO is on. Saved in this browser. Open{" "}
-            <Link href="/market" className="underline underline-offset-4">
-              Market
+            Risk defaults for Lab paper AUTO on Market / Coach. Entry rules come from your{" "}
+            <Link href="/lab" className="underline underline-offset-4">
+              Hypothesis Lab
             </Link>{" "}
-            after saving for the loop to pick them up.
+            prompts (promoted profiles). Saved in this browser.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -293,23 +306,6 @@ export default function SettingsPage() {
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="ema_sep">EMA gap min (% of close)</Label>
-              <Input
-                id="ema_sep"
-                type="number"
-                min={0.01}
-                max={5}
-                step={0.01}
-                value={coachForm.emaSeparationPct}
-                onChange={(e) =>
-                  setCoachForm((s) => ({
-                    ...s,
-                    emaSeparationPct: Number(e.target.value),
-                  }))
-                }
-              />
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="sl_pct">Stop loss %</Label>
               <Input
                 id="sl_pct"
@@ -334,6 +330,54 @@ export default function SettingsPage() {
                 value={coachForm.tpPct}
                 onChange={(e) =>
                   setCoachForm((s) => ({ ...s, tpPct: Number(e.target.value) }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                With a 2% stop loss, set take profit to about 5% or more to clear net R:R 2.0.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="min_net_rr">Minimum net R:R</Label>
+              <Input
+                id="min_net_rr"
+                type="number"
+                min={0.1}
+                max={20}
+                step={0.1}
+                value={coachForm.minNetRr}
+                onChange={(e) =>
+                  setCoachForm((s) => ({ ...s, minNetRr: Number(e.target.value) }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Blocks new entries below this R:R after fees, slippage, and spread.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="slippage_bps">Expected slippage / fill (bps)</Label>
+              <Input
+                id="slippage_bps"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={coachForm.slippageBps}
+                onChange={(e) =>
+                  setCoachForm((s) => ({ ...s, slippageBps: Number(e.target.value) }))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="spread_bps">Assumed full spread (bps)</Label>
+              <Input
+                id="spread_bps"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={coachForm.spreadBps}
+                onChange={(e) =>
+                  setCoachForm((s) => ({ ...s, spreadBps: Number(e.target.value) }))
                 }
               />
             </div>
@@ -367,13 +411,28 @@ export default function SettingsPage() {
             />
             Start with AUTO ON when opening Market / Coach
           </label>
+          <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
+            <p className="font-medium">
+              Entry source: Lab
+              {coachSettings.labHypothesisId
+                ? ` · profile ${coachSettings.labHypothesisId}`
+                : " · choose a promoted profile on Market/Coach"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Built-in A4/CCR strategies are retired. Write rules in{" "}
+              <Link href="/lab" className="underline underline-offset-4">
+                Lab
+              </Link>
+              , promote a paper profile, then run AUTO on Market or Coach.
+            </p>
+          </div>
 
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={saveCoach}>
               Save coach auto
             </Button>
             <Button type="button" variant="outline" onClick={resetCoachDefaults}>
-              Restore A4 defaults
+              Restore Lab defaults
             </Button>
           </div>
         </CardContent>
@@ -383,9 +442,11 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>Risk & account</CardTitle>
           <CardDescription>
-            Paper fee is a flat <strong>$9 USD per fill</strong> (round-trip ≈ $18). Change{" "}
-            <code className="text-xs">PAPER_TRADING_FEE_USD</code> in server .env (set 0 to use{" "}
-            <code className="text-xs">PAPER_TRADING_FEE_PERCENT</code> instead).
+            Paper fee is <strong>0.80% of notional per fill</strong> (round-trip ≈ 1.60%
+            before slippage/spread), matching the confirmed Kraken Pro receipt. Change{" "}
+            <code className="text-xs">PAPER_TRADING_FEE_PERCENT</code> in server .env;
+            <code className="ml-1 text-xs">PAPER_TRADING_FEE_USD</code> stays 0 unless an
+            explicit flat-fee override is needed.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -421,7 +482,7 @@ export default function SettingsPage() {
                 <Input id="max_trades_per_day" {...form.register("max_trades_per_day")} />
               </div>
               <div className="space-y-2">
-                <Label>Trading fee (USD / fill)</Label>
+                <Label>Trading fee / fill</Label>
                 <Input
                   value={
                     Number(settings.trading_fee_usd ?? 0) > 0
@@ -454,8 +515,8 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>Reset paper account</CardTitle>
           <CardDescription>
-            Clears open positions, restores cash to starting balance, and records a reset event.
-            Trade history is kept; analytics focus on activity after the reset.
+            Clears open positions, restores cash to starting balance, and records a reset
+            event. Trade history is kept; analytics focus on activity after the reset.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -491,7 +552,8 @@ export default function SettingsPage() {
           <DialogHeader>
             <DialogTitle>Confirm account reset</DialogTitle>
             <DialogDescription>
-              This clears positions and restores simulated cash. No real money is involved.
+              This clears positions and restores simulated cash. No real money is
+              involved.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">

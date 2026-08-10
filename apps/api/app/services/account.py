@@ -101,6 +101,6 @@ async def get_account_summary(db: Session, user: User) -> AccountSummaryResponse
         trades_today=trades_today,
         positions=position_rows,
         paper_mode_banner=(
-            "Paper Trading Mode — เงินทั้งหมดในระบบเป็นเงินจำลอง ไม่มีการซื้อขายเงินจริง"
+            "Paper Trading Mode — all balances are simulated; no real trading occurs."
         ),
     )

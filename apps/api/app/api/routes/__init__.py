@@ -7,6 +7,7 @@ from app.api.routes import (
     auth,
     coach,
     health,
+    hypothesis_lab,
     journal,
     orders,
     positions,
@@ -26,3 +27,4 @@ api_router.include_router(trades.router)
 api_router.include_router(journal.router)
 api_router.include_router(analytics.router)
 api_router.include_router(coach.router)
+api_router.include_router(hypothesis_lab.router)

@@ -1,6 +1,6 @@
 """Coach signal schemas."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class ChecklistItemResponse(BaseModel):
@@ -9,26 +9,13 @@ class ChecklistItemResponse(BaseModel):
     passed: bool
 
 
-class MetaAlphaGateResponse(BaseModel):
-    take: int = 0
-    proba: float | None = None
-    regime: int | None = None
-    regime_label: str | None = None
+class EntryFilterResultResponse(BaseModel):
+    id: str
+    label: str
+    enabled: bool
+    passed: bool
+    applicable: bool = True
     reason: str = ""
-    warm: bool = False
-
-
-class HoldPanelResponse(BaseModel):
-    side: str  # LONG | SHORT
-    entry_price: str
-    current_price: str
-    pnl_pct: float
-    pnl_usd: float | None = None
-    time_in_trade_sec: int | None = None
-    stop_loss: str | None = None
-    take_profit: str | None = None
-    risk_reward: str | None = None
-    tp_progress: float | None = None
 
 
 class CoachSignalResponse(BaseModel):
@@ -60,20 +47,17 @@ class CoachSignalResponse(BaseModel):
     entry: str = "NONE"  # ENTRY_BUY|ENTRY_SELL|NONE
     exit: str = "NONE"  # EXIT_BUY|EXIT_SELL|NONE
     exit_reason: str | None = None  # Signal|stop_loss|take_profit
-    # Observability
-    reasons: list[str] = Field(default_factory=list)
-    rf_proba: float | None = None
-    regime: int | None = None
-    regime_label: str | None = None
-    signal_candidate: str | None = None
-    ema_gap_pct: float | None = None
-    entry_price: str | None = None
-    confidence_source: str = "primary"
-    primary_confidence: int | None = None
-    meta_alpha: MetaAlphaGateResponse | None = None
-    tp_progress: float | None = None
-    position_state: str = "NEUTRAL"  # NEUTRAL|LONG|SHORT
-    hold: HoldPanelResponse | None = None
+    entry_setup: str | None = None  # a4 | ccr
+    entry_fill: str | None = None  # close | next_open
+    entry_fill_price: str | None = None
+    gross_risk_reward: str | None = None
+    net_risk_reward: str | None = None
+    rr_blocked: bool = False
+    filter_blocked: bool = False
+    filters_enabled: dict[str, bool] = {}
+    filter_results: list[EntryFilterResultResponse] = []
+    filter_set_id: str | None = None
+    filter_version: str | None = None
 
 
 class CoachSignalHistoryItem(BaseModel):
@@ -115,69 +99,6 @@ class CoachSignalHistoryResponse(BaseModel):
     items: list[CoachSignalHistoryItem]
 
 
-class CoachDecisionAuditItem(BaseModel):
-    id: int
-    symbol: str
-    interval: str
-    brain: str
-    strategy: str
-    evaluated_bar_time: int
-    signal: str
-    signal_candidate: str | None = None
-    phase: str | None = None
-    position_state: str | None = None
-    final_action: str
-    rejection_reason: str | None = None
-    confidence: int
-    rf_proba: float | None = None
-    regime: int | None = None
-    regime_label: str | None = None
-    reasons: list[str] = Field(default_factory=list)
-    price: str | None = None
-    ema9: str | None = None
-    ema21: str | None = None
-    ema_gap_pct: str | None = None
-    stop_loss: str | None = None
-    take_profit: str | None = None
-    risk_reward: str | None = None
-    auto_action: str | None = None
-    order_id: int | None = None
-    account_id: int | None = None
-    bar_closed: bool = True
-    created_at: str | None = None
-    updated_at: str | None = None
-
-
-class CoachDecisionAuditResponse(BaseModel):
-    paper_only: bool = True
-    count: int
-    items: list[CoachDecisionAuditItem]
-
-
-class CoachTradeJournalItem(BaseModel):
-    """Completed paper trade for the Trade Journal panel."""
-
-    id: int
-    symbol: str
-    side: str  # LONG | SHORT
-    entry_time: str | None = None
-    exit_time: str | None = None
-    entry_price: str | None = None
-    exit_price: str | None = None
-    net_pnl: str | None = None
-    exit_reason: str | None = None
-    confidence: int | None = None
-    regime_label: str | None = None
-    duration_sec: int | None = None
-    order_id: int | None = None
-
-
-class CoachTradeJournalResponse(BaseModel):
-    paper_only: bool = True
-    count: int
-    items: list[CoachTradeJournalItem]
-
-
 class CoachPromptResponse(BaseModel):
     name: str
     prompt: str
@@ -211,10 +132,11 @@ class CoachStatsResponse(BaseModel):
     last_exit_reason: str | None = None
     journaled_exits: int = 0
     avg_risk_reward: str | None = None
-    planned_risk_reward: str = "1:1.5"
+    planned_risk_reward: str = "1:2.5"
     strategy: str | None = None
     account_id: int | None = None
     account_name: str | None = None
+    variant_stats: list[dict] = []
 
 
 class CoachAutoTickResponse(BaseModel):
@@ -239,19 +161,19 @@ class CoachAutoTickResponse(BaseModel):
     phase: str | None = None
     exit: str | None = None
     position_state: str | None = None
-    # Observability
-    reasons: list[str] = Field(default_factory=list)
-    rf_proba: float | None = None
-    regime: int | None = None
-    regime_label: str | None = None
-    entry_price: str | None = None
-    confidence_source: str | None = None
-    primary_confidence: int | None = None
-    meta_alpha: MetaAlphaGateResponse | None = None
-    tp_progress: float | None = None
-    hold: HoldPanelResponse | None = None
-    ema_gap_pct: float | None = None
-    signal_candidate: str | None = None
+    entry_setup: str | None = None
+    entry_fill: str | None = None
+    entry_fill_price: str | None = None
+    gross_risk_reward: str | None = None
+    net_risk_reward: str | None = None
+    rr_blocked: bool = False
+    filter_blocked: bool = False
+    filters_enabled: dict[str, bool] = {}
+    filter_results: list[EntryFilterResultResponse] = []
+    filter_set_id: str | None = None
+    entry_source: str | None = None
+    hypothesis_id: str | None = None
+    hypothesis_version: str | None = None
 
 
 class CoachAbTickResponse(BaseModel):

@@ -45,6 +45,11 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # Billing provider is intentionally not coupled to the MVP.  This is the
+    # server-side entitlement used by feature gates until checkout is added.
+    subscription_plan: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="free", server_default="free"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -347,6 +352,9 @@ class CoachSignalEvent(Base):
     stop_loss: Mapped[Optional[Decimal]] = mapped_column(PRICE, nullable=True)
     take_profit: Mapped[Optional[Decimal]] = mapped_column(PRICE, nullable=True)
     risk_reward: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    # Immutable entry experiment snapshot, serialized JSON for portable SQLite/MySQL support.
+    filter_set_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    filter_snapshot: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     bar_closed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     evaluated_bar_time: Mapped[int] = mapped_column(Integer, nullable=False, index=True)

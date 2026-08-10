@@ -70,14 +70,11 @@ export type MoneyString = string;
 
 export interface PaperModeBanner {
   title: string;
-  messageTh: string;
   messageEn: string;
 }
 
 export const PAPER_MODE_BANNER: PaperModeBanner = {
   title: "PAPER MODE — NO REAL ORDERS",
-  messageTh:
-    "เงินทั้งหมดในระบบเป็นเงินจำลอง — ใช้ Kraken เฉพาะข้อมูลตลาดสาธารณะ ไม่มีคำสั่งซื้อขายจริง",
   messageEn:
     "All balances are simulated. Kraken public market data only — never private trading APIs or real orders.",
 };

@@ -1,6 +1,7 @@
 """Authentication service: register, login, bootstrap paper account."""
 
 from decimal import Decimal
+import secrets
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -61,6 +62,7 @@ def build_user_response(user: User) -> UserResponse:
         id=user.id,
         email=user.email,
         display_name=user.display_name,
+        subscription_plan=user.subscription_plan,
         created_at=user.created_at,
         trading_account=account_summary,
     )
@@ -129,6 +131,31 @@ def authenticate_user(db: Session, payload: LoginRequest) -> AuthResponse:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
+
+    loaded = get_user_by_id(db, user.id)
+    assert loaded is not None
+    token = create_access_token(str(loaded.id), extra_claims={"email": loaded.email})
+    return AuthResponse(access_token=token, user=build_user_response(loaded))
+
+
+def authenticate_google_user(
+    db: Session, *, email: str, display_name: str
+) -> AuthResponse:
+    """Link a verified Google email to an existing user or provision a new one."""
+    user = get_user_by_email(db, email)
+    if user is None:
+        user = User(
+            email=email,
+            # There is no usable password for Google-created accounts. The
+            # random value is hashed only to preserve the current schema.
+            password_hash=hash_password(secrets.token_urlsafe(48)),
+            display_name=display_name.strip() or email.split("@", maxsplit=1)[0],
+            subscription_plan="free",
+        )
+        db.add(user)
+        db.flush()
+        create_paper_account_for_user(db, user)
+        db.commit()
 
     loaded = get_user_by_id(db, user.id)
     assert loaded is not None

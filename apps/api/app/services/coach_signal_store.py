@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -139,6 +140,18 @@ def persist_coach_signal(db: Session, verdict: CoachVerdict) -> CoachSignalEvent
     exit_reason = getattr(verdict, "exit_reason", None)
     alert_side = _alert_side(phase)
     now = datetime.now(timezone.utc)
+    filter_snapshot = json.dumps(
+        {
+            "entrySignal": getattr(verdict, "entry_setup", None),
+            "filtersEnabled": getattr(verdict, "filters_enabled", None) or {},
+            "filterResults": [
+                item.snapshot() for item in (getattr(verdict, "filter_results", None) or [])
+            ],
+            "filterSetId": getattr(verdict, "filter_set_id", None),
+            "filterVersion": getattr(verdict, "filter_version", None),
+        },
+        separators=(",", ":"),
+    )
 
     existing = db.scalar(
         select(CoachSignalEvent).where(
@@ -186,6 +199,8 @@ def persist_coach_signal(db: Session, verdict: CoachVerdict) -> CoachSignalEvent
             stop_loss=verdict.stop_loss,
             take_profit=verdict.take_profit,
             risk_reward=verdict.risk_reward,
+            filter_set_id=getattr(verdict, "filter_set_id", None),
+            filter_snapshot=filter_snapshot,
             source=verdict.source,
             bar_closed=True,
             evaluated_bar_time=verdict.evaluated_bar_time,

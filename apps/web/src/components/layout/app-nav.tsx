@@ -8,6 +8,7 @@ import {
   Bot,
   CandlestickChart,
   BarChart3,
+  HelpCircle,
   History,
   LayoutDashboard,
   LogOut,
@@ -17,6 +18,7 @@ import {
   Sun,
   Wallet,
   ArrowLeftRight,
+  FlaskConical,
 } from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
@@ -31,6 +33,7 @@ const links = [
   { href: "/history", label: "History", icon: History },
   { href: "/journal", label: "Journal", icon: BookOpen },
   { href: "/coach", label: "Coach", icon: Bot },
+  { href: "/lab", label: "Lab", icon: FlaskConical },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -53,6 +56,17 @@ export function AppNav() {
           <span className="hidden text-sm text-muted-foreground lg:inline">
             {user?.display_name}
           </span>
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            aria-label="User guide"
+            className={pathname.startsWith("/guide") ? "bg-accent text-accent-foreground" : undefined}
+          >
+            <Link href="/guide">
+              <HelpCircle className="h-4 w-4" />
+            </Link>
+          </Button>
           <Button
             variant="ghost"
             size="icon"

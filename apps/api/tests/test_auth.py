@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.models import AccountMode, RiskRule, TradingAccount, User
+from app.services import auth as auth_service
 
 
 def test_register_creates_paper_account(client: TestClient) -> None:
@@ -100,3 +101,44 @@ def test_login_invalid_password(client: TestClient, db_session: Session) -> None
 
 def test_me_requires_auth(client: TestClient) -> None:
     assert client.get("/auth/me").status_code == 401
+
+
+def test_google_callback_creates_user_with_mocked_google_profile(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    async def fake_google_profile(_: str) -> dict[str, str]:
+        return {"email": "google@example.com", "display_name": "Google User"}
+
+    monkeypatch.setattr(
+        "app.api.routes.auth.google_oauth.get_google_profile", fake_google_profile
+    )
+    response = client.get(
+        "/auth/google/callback?code=google-code&state=expected-state",
+        cookies={"pcc_google_oauth_state": "expected-state"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"].startswith(
+        "http://localhost:3001/auth/google/callback#access_token="
+    )
+    user = db_session.query(User).filter_by(email="google@example.com").one()
+    assert user.subscription_plan == "free"
+    assert db_session.query(TradingAccount).filter_by(user_id=user.id).count() == 1
+
+
+def test_google_login_links_existing_email(db_session: Session) -> None:
+    existing = User(
+        email="linked@example.com",
+        password_hash=hash_password("SecurePass1!"),
+        display_name="Existing User",
+    )
+    db_session.add(existing)
+    db_session.commit()
+
+    response = auth_service.authenticate_google_user(
+        db_session, email="linked@example.com", display_name="Google Name"
+    )
+
+    assert response.user.id == existing.id
+    assert db_session.query(User).filter_by(email="linked@example.com").count() == 1

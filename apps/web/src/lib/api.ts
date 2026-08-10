@@ -27,9 +27,14 @@ import {
   PriceQuote,
   Trade,
   TradePreview,
+  HypothesisLabItem,
+  HypothesisBacktest,
+  HypothesisLabAccess,
 } from "@/lib/types";
 
 const TOKEN_KEY = "pcc_access_token";
+const API_REQUEST_TIMEOUT_MS = 10_000;
+const AUTH_REQUEST_TIMEOUT_MS = 5_000;
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -46,6 +51,7 @@ async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
   auth = false,
+  timeoutMs = API_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type") && options.body) {
@@ -57,10 +63,27 @@ async function apiFetch<T>(
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...options,
-    headers,
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  if (options.signal) {
+    options.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBaseUrl()}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiError("API request timed out. Please check that the API is running.", 408);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     let detail = `Request failed (${response.status})`;
@@ -87,11 +110,15 @@ async function apiFetch<T>(
 }
 
 export const api = {
+  googleAuthConfig: () => apiFetch<{ enabled: boolean }>("/auth/google/config"),
+  googleAuthStartUrl: () => `${getApiBaseUrl()}/auth/google/start`,
   register: (body: { email: string; password: string; display_name: string }) =>
     apiFetch<AuthResponse>("/auth/register", { method: "POST", body: JSON.stringify(body) }),
   login: (body: { email: string; password: string }) =>
     apiFetch<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
-  me: () => apiFetch<AuthUser>("/auth/me", {}, true),
+  // Auth is required before any protected route can render. Keep this short so
+  // a stopped API results in a recoverable error screen, not a frozen shell.
+  me: () => apiFetch<AuthUser>("/auth/me", {}, true, AUTH_REQUEST_TIMEOUT_MS),
   assets: () => apiFetch<Asset[]>("/assets"),
   prices: () => apiFetch<PriceQuote[]>("/prices"),
   price: (symbol: string) => apiFetch<PriceQuote>(`/prices/${symbol}`),
@@ -141,15 +168,29 @@ export const api = {
   coachSignal: (
     symbol: string,
     interval: CandleInterval = "15m",
-    opts?: { slPct?: number; tpPct?: number; emaSepPct?: number },
+    opts?: {
+      slPct?: number;
+      tpPct?: number;
+      minNetRr?: number;
+      slippageBps?: number;
+      spreadBps?: number;
+      notionalUsd?: number;
+      entrySource?: "lab";
+      hypothesisId?: string | null;
+    },
   ) => {
     const q = new URLSearchParams({
       symbol,
       interval,
+      entry_source: "lab",
     });
     if (opts?.slPct != null) q.set("sl_pct", String(opts.slPct));
     if (opts?.tpPct != null) q.set("tp_pct", String(opts.tpPct));
-    if (opts?.emaSepPct != null) q.set("ema_sep_pct", String(opts.emaSepPct));
+    if (opts?.minNetRr != null) q.set("min_net_rr", String(opts.minNetRr));
+    if (opts?.slippageBps != null) q.set("slippage_bps", String(opts.slippageBps));
+    if (opts?.spreadBps != null) q.set("spread_bps", String(opts.spreadBps));
+    if (opts?.notionalUsd != null) q.set("notional_usd", String(opts.notionalUsd));
+    if (opts?.hypothesisId) q.set("hypothesis_id", opts.hypothesisId);
     return apiFetch<CoachSignal>(`/coach/signal?${q}`, {}, true);
   },
   coachSignalHistory: (opts?: {
@@ -214,20 +255,43 @@ export const api = {
       slPct?: number;
       tpPct?: number;
       tpUsd?: number;
-      emaSepPct?: number;
       leverage?: number;
+      minNetRr?: number;
+      slippageBps?: number;
+      spreadBps?: number;
+      entrySource?: "lab";
+      hypothesisId?: string | null;
     },
   ) => {
     const q = new URLSearchParams({
       symbol,
       interval,
       usd_amount: String(usdAmount),
+      entry_source: "lab",
     });
     if (opts?.slPct != null) q.set("sl_pct", String(opts.slPct));
     if (opts?.tpPct != null) q.set("tp_pct", String(opts.tpPct));
     if (opts?.tpUsd != null) q.set("tp_usd", String(opts.tpUsd));
-    if (opts?.emaSepPct != null) q.set("ema_sep_pct", String(opts.emaSepPct));
     if (opts?.leverage != null) q.set("leverage", String(opts.leverage));
+    if (opts?.minNetRr != null) q.set("min_net_rr", String(opts.minNetRr));
+    if (opts?.slippageBps != null) q.set("slippage_bps", String(opts.slippageBps));
+    if (opts?.spreadBps != null) q.set("spread_bps", String(opts.spreadBps));
+    if (opts?.hypothesisId) q.set("hypothesis_id", opts.hypothesisId);
     return apiFetch<CoachAutoTick>(`/coach/auto-tick?${q}`, { method: "POST" }, true);
   },
+  hypothesisLab: () => apiFetch<{ items: HypothesisLabItem[] }>("/hypothesis-lab", {}, true),
+  hypothesisLabAccess: () => apiFetch<HypothesisLabAccess>("/hypothesis-lab/access", {}, true),
+  createHypothesis: (payload: {
+    prompt: string; name?: string; structured_rules?: Record<string, unknown>;
+  }) => apiFetch<HypothesisLabItem>("/hypothesis-lab", {
+    method: "POST", body: JSON.stringify(payload),
+  }, true),
+  backtestHypothesis: (id: string, bars = 3000) =>
+    apiFetch<HypothesisBacktest>(`/hypothesis-lab/${encodeURIComponent(id)}/backtest`, {
+      method: "POST", body: JSON.stringify({ bars }),
+    }, true, 60_000),
+  promoteHypothesis: (id: string) =>
+    apiFetch<HypothesisLabItem>(`/hypothesis-lab/${encodeURIComponent(id)}/promote`, {
+      method: "POST",
+    }, true),
 };

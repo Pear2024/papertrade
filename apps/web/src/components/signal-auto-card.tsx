@@ -13,12 +13,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PostTradeStats } from "@/components/post-trade-stats";
 import { TradeChecklist } from "@/components/trade-checklist";
 import { BarCountdown } from "@/components/bar-countdown";
-import { useCoachSettings } from "@/hooks/use-coach-settings";
+import { useAutoSession, useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
-import { coachSettingsToApiParams } from "@/lib/coach-settings";
+import { coachSettingsToApiParams, saveLabHypothesisId } from "@/lib/coach-settings";
 import { formatMoney } from "@/lib/format";
 import { resolveSlTpPct } from "@/lib/sl-tp";
 import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Props = {
   symbol?: string;
@@ -26,8 +27,7 @@ type Props = {
 };
 
 /**
- * One-button paper desk: you press → coach BUY/SELL with SL/TP locked.
- * Auto loop uses Settings → Coach auto (browser prefs).
+ * Lab-only paper desk: promoted hypothesis profile drives signal + AUTO.
  */
 export function SignalAutoCard({ symbol = "BTC", className }: Props) {
   const { settings } = useCoachSettings();
@@ -41,13 +41,23 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
   const stake = settings.autoStakeUsd;
   const tickMs = settings.autoTickSeconds * 1000;
 
-  const [autoEnabled, setAutoEnabled] = useState(settings.autoOnDefault);
+  const { autoEnabled, setAutoEnabled } = useAutoSession();
   const [lastMsg, setLastMsg] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const labQuery = useQuery({
+    queryKey: ["hypothesis-lab"],
+    queryFn: api.hypothesisLab,
+    staleTime: 30_000,
+  });
+  const promotedLab = (labQuery.data?.items ?? []).filter((item) => item.promoted_at);
+  const activeLab =
+    promotedLab.find((item) => item.id === settings.labHypothesisId) ?? promotedLab[0];
 
   useEffect(() => {
-    setAutoEnabled(settings.autoOnDefault);
-  }, [settings.autoOnDefault]);
+    if (activeLab && settings.labHypothesisId !== activeLab.id) {
+      saveLabHypothesisId(activeLab.id);
+    }
+  }, [activeLab, settings.labHypothesisId]);
 
   const signalQuery = useQuery({
     queryKey: [
@@ -56,14 +66,26 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
       interval,
       ruleOpts.sl_pct,
       ruleOpts.tp_pct,
-      ruleOpts.ema_sep_pct,
+      ruleOpts.min_net_rr,
+      ruleOpts.slippage_bps,
+      ruleOpts.spread_bps,
+      "lab",
+      activeLab?.id,
+      stake,
+      settings.leverage,
     ],
     queryFn: () =>
       api.coachSignal(symbol, interval, {
         slPct: ruleOpts.sl_pct,
         tpPct: ruleOpts.tp_pct,
-        emaSepPct: ruleOpts.ema_sep_pct,
+        minNetRr: ruleOpts.min_net_rr,
+        slippageBps: ruleOpts.slippage_bps,
+        spreadBps: ruleOpts.spread_bps,
+        notionalUsd: stake * settings.leverage,
+        entrySource: "lab",
+        hypothesisId: activeLab?.id,
       }),
+    enabled: Boolean(activeLab?.id),
     refetchInterval: 15_000,
   });
   const positionQuery = useQuery({
@@ -78,8 +100,12 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
         slPct: ruleOpts.sl_pct,
         tpPct: ruleOpts.tp_pct,
         tpUsd: settings.tpUsd,
-        emaSepPct: ruleOpts.ema_sep_pct,
         leverage: settings.leverage,
+        minNetRr: ruleOpts.min_net_rr,
+        slippageBps: ruleOpts.slippage_bps,
+        spreadBps: ruleOpts.spread_bps,
+        entrySource: "lab",
+        hypothesisId: activeLab?.id,
       }),
     onSuccess: async (data) => {
       const logLine = (data.logs && data.logs.length > 0 ? data.logs.join(" · ") : null) || data.reason;
@@ -103,15 +129,13 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
         queryClient.invalidateQueries({ queryKey: ["account-summary"] }),
         queryClient.invalidateQueries({ queryKey: ["coach-stats"] }),
         queryClient.invalidateQueries({ queryKey: ["trades"] }),
-        queryClient.invalidateQueries({ queryKey: ["coach-trade-journal", symbol] }),
-        queryClient.invalidateQueries({ queryKey: ["coach-decisions", symbol] }),
       ]);
     },
     onError: (error) => setLastMsg((error as Error).message),
   });
 
   useEffect(() => {
-    if (!autoEnabled) return;
+    if (!autoEnabled || !activeLab?.id) return;
     const tick = () => {
       if (!actionMutation.isPending) actionMutation.mutate();
     };
@@ -119,7 +143,21 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
     const id = window.setInterval(tick, tickMs);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoEnabled, symbol, interval, stake, tickMs, ruleOpts.sl_pct, ruleOpts.tp_pct, ruleOpts.ema_sep_pct, settings.leverage, settings.tpUsd]);
+  }, [
+    autoEnabled,
+    symbol,
+    interval,
+    stake,
+    tickMs,
+    ruleOpts.sl_pct,
+    ruleOpts.tp_pct,
+    ruleOpts.min_net_rr,
+    ruleOpts.slippage_bps,
+    ruleOpts.spread_bps,
+    settings.leverage,
+    settings.tpUsd,
+    activeLab?.id,
+  ]);
 
   const data = signalQuery.data;
   const signal = data?.signal ?? "WAIT";
@@ -138,45 +176,36 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
   const statusLabel = hasLong ? "LONG" : hasShort ? "SHORT" : "FLAT";
 
   const canBuy =
+    Boolean(activeLab) &&
     (signal === "BUY" || entryKind === "ENTRY_BUY" || phase === "ENTRY_BUY") &&
     data?.bar_closed !== false &&
+    !data?.rr_blocked &&
+    !data?.filter_blocked &&
     !hasPosition;
-  const canSell =
-    (signal === "SELL" || entryKind === "ENTRY_SELL" || phase === "ENTRY_SELL") &&
-    data?.bar_closed !== false &&
-    !hasPosition;
-  const canAct = canBuy || canSell;
+  const canAct = canBuy;
 
   const displayLabel =
     phase !== "NONE" && phase
       ? phase.replaceAll("_", " ")
       : entryKind === "ENTRY_BUY"
         ? "ENTRY BUY"
-        : entryKind === "ENTRY_SELL"
-          ? "ENTRY SELL"
-          : trend === "HOLD_LONG" || trend === "BUY_TREND"
-            ? "HOLD LONG"
-            : trend === "HOLD_SHORT" || trend === "SELL_TREND"
-              ? "HOLD SHORT"
-              : exitKind !== "NONE"
-                ? exitKind.replaceAll("_", " ")
-                : signal;
+        : trend === "HOLD_LONG" || trend === "BUY_TREND"
+          ? "HOLD LONG"
+          : exitKind !== "NONE"
+            ? exitKind.replaceAll("_", " ")
+            : signal;
 
   const buttonLabel = actionMutation.isPending
     ? "Working…"
     : canBuy
       ? "ENTRY BUY · open LONG + lock SL/TP"
-      : canSell
-        ? "ENTRY SELL · open SHORT + lock SL/TP"
-        : hasPosition
-          ? `HOLD ${statusLabel} until EXIT / SL / TP`
-          : phase === "HOLD_LONG" || trend === "HOLD_LONG" || trend === "BUY_TREND"
-            ? "HOLD LONG — no new order"
-            : phase === "HOLD_SHORT" || trend === "HOLD_SHORT" || trend === "SELL_TREND"
-              ? "HOLD SHORT — no new order"
-              : signal === "WAIT" || data?.bar_closed === false
-                ? "Wait for closed candle + ENTRY"
-                : "No action right now";
+      : hasPosition
+        ? `HOLD ${statusLabel} until EXIT / SL / TP`
+        : phase === "HOLD_LONG" || trend === "HOLD_LONG" || trend === "BUY_TREND"
+          ? "HOLD LONG — no new order"
+          : signal === "WAIT" || data?.bar_closed === false
+            ? "Wait for closed candle + Lab ENTRY"
+            : "No Lab action right now";
 
   const statusTone = hasLong
     ? "border-emerald-500/40 bg-emerald-500/10"
@@ -191,15 +220,9 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
     trend === "HOLD_LONG" ||
     trend === "BUY_TREND"
       ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-      : phase === "ENTRY_SELL" ||
-          phase === "HOLD_SHORT" ||
-          entryKind === "ENTRY_SELL" ||
-          trend === "HOLD_SHORT" ||
-          trend === "SELL_TREND"
-        ? "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300"
-        : phase.startsWith("EXIT") || exitKind.startsWith("EXIT")
-          ? "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300"
-          : "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200";
+      : phase.startsWith("EXIT") || exitKind.startsWith("EXIT")
+        ? "border-slate-500/40 bg-slate-500/10 text-slate-700 dark:text-slate-300"
+        : "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200";
 
   const plannedSl = data?.stop_loss ? formatMoney(data.stop_loss) : null;
   const plannedTp = data?.take_profit ? formatMoney(data.take_profit) : null;
@@ -216,31 +239,75 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
             <div>
               <div className="flex items-center gap-2">
                 <Bot className="h-5 w-5 text-primary" />
-                <CardTitle>{symbol} · One-button paper desk</CardTitle>
+                <CardTitle>{symbol} · Lab paper AUTO</CardTitle>
               </div>
               <CardDescription className="mt-1">
-                Paper LONG & SHORT. AUTO uses{" "}
+                Paper fills from your promoted Hypothesis Lab profile. Risk defaults from{" "}
                 <Link href="/settings" className="underline underline-offset-4">
                   Settings
                 </Link>
                 : {interval}, tick {settings.autoTickSeconds}s, margin ${stake} ×{" "}
                 {settings.leverage}x, SL {effSlPct}% / TP {effTpPct}% · $TP $
-                {settings.tpUsd} ({symbol}). Stack: A4 EMA ENTRY → MetaAlpha filter ON
-                (proba ≥ 0.75) → open when flat · EXIT on signal / SL / % TP / $ TP.
+                {settings.tpUsd} ({symbol}).
               </CardDescription>
             </div>
-            <Badge variant={autoEnabled ? "default" : "secondary"}>
-              {autoEnabled ? "AUTO ON" : "MANUAL"}
+            <Badge variant={autoEnabled && activeLab ? "default" : "secondary"}>
+              {autoEnabled && activeLab ? "AUTO ON" : "MANUAL"}
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            ENTRY when flat (incl. after $ TP) → HOLD while open → EXIT on opposite
-            signal / SL / % TP / ${settings.tpUsd} USD TP · Chat on ENTRY+EXIT only
+            Write a rule in{" "}
+            <Link href="/lab" className="underline underline-offset-4">
+              Lab
+            </Link>
+            , backtest, save a paper profile, then AUTO evaluates closed candles and fills at the
+            next open.
           </p>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium">Lab profile</span>
+            {promotedLab.length > 0 ? (
+              <Select
+                value={activeLab?.id ?? ""}
+                onValueChange={(id) => saveLabHypothesisId(id)}
+              >
+                <SelectTrigger className="h-8 min-w-52">
+                  <SelectValue placeholder="Choose promoted profile" />
+                </SelectTrigger>
+                <SelectContent>
+                  {promotedLab.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.name} v{item.version}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Button asChild size="sm" variant="outline" className="h-8">
+                <Link href="/lab">Create & promote a profile in Lab</Link>
+              </Button>
+            )}
+          </div>
+          {activeLab && (
+            <p className="text-xs text-muted-foreground">
+              Active: {activeLab.name} · {activeLab.id} v{activeLab.version} · closed signal bar,
+              next candle open.
+            </p>
+          )}
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {signalQuery.isLoading ? (
+          {!activeLab ? (
+            <Alert>
+              <AlertTitle>No promoted Lab profile</AlertTitle>
+              <AlertDescription>
+                Paper AUTO only runs Hypothesis Lab profiles. Open{" "}
+                <Link href="/lab" className="underline underline-offset-4">
+                  Lab
+                </Link>
+                , describe your rules in a prompt, backtest, then save a paper profile.
+              </AlertDescription>
+            </Alert>
+          ) : signalQuery.isLoading ? (
             <Skeleton className="h-24 w-full" />
           ) : signalQuery.isError ? (
             <Alert variant="destructive">
@@ -250,7 +317,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
           ) : (
             <div className={cn("rounded-lg border p-4", signalTone)}>
               <p className="text-xs font-medium uppercase tracking-wide opacity-80">
-                Live coach · {interval} · closed-bar only
+                Lab coach · {interval} · closed-bar only
               </p>
               <p className="mt-1 text-3xl font-semibold tracking-tight">{displayLabel}</p>
               <p className="mt-1 text-xs opacity-80">
@@ -258,35 +325,9 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
                 {signal}
               </p>
               <p className="mt-1 text-sm">
-                Confidence{" "}
-                {data?.confidence_source === "meta_alpha_rf" && data.rf_proba != null
-                  ? `${data.confidence}%`
-                  : data?.confidence != null
-                    ? `${data.confidence}%`
-                    : "N/A"}
-                {data?.rf_proba != null
-                  ? ` · RF Probability: ${data.rf_proba.toFixed(2)}`
-                  : " · RF Probability: N/A"}
+                Confidence {data?.confidence ?? 0}%
                 {data?.bar_closed === false ? " · waiting for candle close" : ""}
               </p>
-              {data?.regime_label ? (
-                <p className="mt-1 text-xs font-semibold tracking-wide">
-                  Regime: {data.regime_label}
-                </p>
-              ) : null}
-              {data?.entry_price &&
-              (phase.startsWith("ENTRY") || phase.startsWith("HOLD") || phase.startsWith("FLIP")) ? (
-                <p className="mt-1 text-xs">
-                  Entry price: <span className="font-mono font-medium">{formatMoney(data.entry_price)}</span>
-                </p>
-              ) : null}
-              {data?.reasons && data.reasons.length > 0 ? (
-                <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs opacity-90">
-                  {data.reasons.slice(0, 8).map((r) => (
-                    <li key={r}>{r}</li>
-                  ))}
-                </ul>
-              ) : null}
               <p className="mt-2 text-sm font-medium leading-snug">
                 {data?.short_reason || data?.reason}
               </p>
@@ -295,7 +336,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
 
           <div className={cn("rounded-lg border p-4", statusTone)}>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Position status · {hasPosition ? `${statusLabel} — HOLD` : "FLAT — can evaluate ENTRY"}
+              Position status
             </p>
             <p className="mt-1 text-2xl font-semibold tracking-tight">{statusLabel}</p>
             <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
@@ -311,26 +352,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
               <p>
                 Take Profit: <span className="font-medium">{posTp}</span>
               </p>
-              {data?.hold?.tp_progress != null ? (
-                <p>
-                  TP progress:{" "}
-                  <span className="font-medium">{Math.round(data.hold.tp_progress)}%</span>
-                </p>
-              ) : null}
-              {data?.risk_reward || data?.hold?.risk_reward ? (
-                <p>
-                  Risk/Reward:{" "}
-                  <span className="font-medium">
-                    {data?.hold?.risk_reward || data?.risk_reward}
-                  </span>
-                </p>
-              ) : null}
             </div>
-            {hasPosition ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Only HOLD or EXIT {statusLabel} while open — no new ENTRY.
-              </p>
-            ) : null}
           </div>
 
           <BarCountdown interval={interval} />
@@ -341,15 +363,17 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
               <p className="font-medium">
                 {hasPosition
                   ? `${statusLabel} open — hold until SL/TP (no flip)`
-                  : "FLAT — ENTRY BUY opens LONG · ENTRY SELL opens SHORT"}
+                  : activeLab
+                    ? `FLAT — Lab (${activeLab.name} v${activeLab.version}) opens LONG on closed-bar signal`
+                    : "FLAT — promote a Lab profile first"}
               </p>
             </div>
             <div className="rounded-md border bg-muted/30 px-3 py-2">
               <p className="text-xs text-muted-foreground">Planned exits (new entry)</p>
               <p className="font-medium">
                 {plannedSl && plannedTp
-                  ? `SL ${plannedSl} · TP ${plannedTp}`
-                  : `LONG: −${effSlPct}% / +${effTpPct}% · SHORT: +${effSlPct}% / −${effTpPct}%`}
+                  ? `SL ${plannedSl} · TP ${plannedTp} · net R:R ${data?.net_risk_reward ?? "—"}`
+                  : `LONG: −${effSlPct}% / +${effTpPct}%`}
               </p>
               {data?.price && (
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -364,16 +388,15 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
             className={cn(
               "h-14 w-full text-base font-semibold",
               canBuy && "bg-emerald-600 hover:bg-emerald-600/90",
-              canSell && "bg-red-600 hover:bg-red-600/90",
             )}
-            disabled={!canAct || actionMutation.isPending}
+            disabled={!canAct || actionMutation.isPending || !activeLab}
             onClick={() => actionMutation.mutate()}
           >
             <Zap className="mr-2 h-5 w-5" />
             {buttonLabel}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
-            Paper only — open every ENTRY when flat · hold to SL/% TP/${settings.tpUsd} USD TP ·
+            Paper only — Lab ENTRY when flat · hold to SL/% TP/${settings.tpUsd} USD TP ·
             fixed stake · journaled · no real brokerage
           </p>
 
@@ -382,6 +405,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
               type="button"
               size="sm"
               variant={autoEnabled ? "default" : "outline"}
+              disabled={!activeLab}
               onClick={() => setAutoEnabled((v) => !v)}
             >
               {autoEnabled ? (
@@ -390,7 +414,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
                 </>
               ) : (
                 <>
-                  <PlayCircle className="mr-1.5 h-4 w-4" /> Optional: start auto loop
+                  <PlayCircle className="mr-1.5 h-4 w-4" /> Start Lab auto loop
                 </>
               )}
             </Button>
@@ -398,7 +422,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
               type="button"
               size="sm"
               variant="ghost"
-              disabled={signalQuery.isFetching}
+              disabled={!activeLab || signalQuery.isFetching}
               onClick={() => signalQuery.refetch()}
             >
               Refresh signal

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8f6fc"/>
+      <stop offset="55%" stop-color="#f8fafc"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <rect x="0" y="0" width="960" height="88" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="24" y="30" font-size="16" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Paper Crypto Coach</text>
+  <text x="900" y="30" text-anchor="end" font-size="12" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Paper only</text>
+  <rect x="16" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="60" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Dashboard</text>
+<rect x="110" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="154" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Market</text>
+<rect x="204" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="248" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Desk</text>
+<rect x="298" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="342" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Portfolio</text>
+<rect x="392" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="436" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">History</text>
+<rect x="486" y="52" width="88" height="28" rx="6" fill="#d6eef8" stroke="#0b7ea8"/>
+    <text x="530" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#086484">Journal</text>
+<rect x="580" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="624" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Coach</text>
+<rect x="674" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="718" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Lab</text>
+<rect x="768" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="812" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Analytics</text>
+<rect x="862" y="52" width="88" height="28" rx="6" fill="#f1f5f9" stroke="#d0d7e2"/>
+    <text x="906" y="70" text-anchor="middle" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#64748b">Settings</text>
+  <text x="24" y="120" font-size="22" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Journal</text>
+  <text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Reflect on setups and emotions — links learning to Analytics.</text>
+     <rect x="24" y="170" width="440" height="300" rx="12" fill="#fff" stroke="#dbe3ee"/>
+     <text x="44" y="202" font-size="14" font-weight="600" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">New entry</text>
+     <rect x="44" y="220" width="180" height="34" rx="8" fill="#f8fafc" stroke="#d0d7e2"/><text x="58" y="242" font-size="12" fill="#334155" font-family="Segoe UI,Arial,sans-serif">Symbol: BTC</text>
+     <rect x="236" y="220" width="200" height="34" rx="8" fill="#f8fafc" stroke="#d0d7e2"/><text x="250" y="242" font-size="12" fill="#334155" font-family="Segoe UI,Arial,sans-serif">Setup: Lab EMA</text>
+     <rect x="44" y="270" width="392" height="90" rx="8" fill="#f8fafc" stroke="#d0d7e2"/>
+     <text x="58" y="298" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Notes: waited for closed 15m bar…</text>
+     <text x="44" y="390" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Emotion tags: calm · confident</text>
+     <rect x="44" y="410" width="140" height="36" rx="8" fill="#0b7ea8"/><text x="114" y="433" text-anchor="middle" font-size="13" fill="#fff" font-family="Segoe UI,Arial,sans-serif">Save entry</text>
+     <rect x="488" y="170" width="448" height="300" rx="12" fill="#fff" stroke="#dbe3ee"/>
+     <text x="508" y="202" font-size="14" font-weight="600" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Recent notes</text>
+     <rect x="508" y="220" width="408" height="70" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+     <text x="522" y="248" font-size="13" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">BTC · Lab profile fill</text>
+     <text x="522" y="270" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Emotion: calm · followed checklist</text>
+     <rect x="508" y="306" width="408" height="70" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+     <text x="522" y="334" font-size="13" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">ETH · Desk scalp</text>
+     <text x="522" y="356" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Emotion: impatient · cut early</text>
+  <text x="24" y="525" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#94a3b8">UI illustration · Paper Crypto Coach User Guide</text>
+</svg>

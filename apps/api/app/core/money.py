@@ -35,7 +35,7 @@ def calculate_fee(
     fee_percent: Decimal | str,
     fee_usd: Decimal | str | None = None,
 ) -> Decimal:
-    """Paper fee per fill. Prefer flat USD when fee_usd > 0; else percent of gross."""
+    """Paper fee per fill from notional; a positive flat USD value is an override."""
     if fee_usd is not None and to_decimal(fee_usd) > 0:
         return money(fee_usd)
     return money(to_decimal(gross_amount) * fee_rate_from_percent(fee_percent))
