@@ -1,4 +1,4 @@
-export type MoneyString = string;
+﻿export type MoneyString = string;
 
 export interface AuthUser {
   id: number;
@@ -450,6 +450,55 @@ export interface HypothesisLabAccess {
   daily_backtest_limit: number | null;
   can_promote: boolean;
   upgrade_message: string | null;
+}
+
+
+export interface CoachTradeJournalItem {
+  id: number;
+  symbol: string;
+  side: string;
+  entry_time: string | null;
+  exit_time: string | null;
+  entry_price: string | null;
+  exit_price: string | null;
+  net_pnl: string | null;
+  exit_reason: string | null;
+  confidence: number | null;
+  regime_label: string | null;
+  duration_sec: number | null;
+  order_id: number | null;
+}
+
+export interface CoachTradeJournal {
+  items: CoachTradeJournalItem[];
+}
+
+export interface CoachDecisionAuditItem {
+  id: number;
+  symbol: string;
+  interval: string;
+  brain?: string | null;
+  strategy?: string | null;
+  evaluated_bar_time: number;
+  signal?: string | null;
+  signal_candidate?: string | null;
+  phase?: string | null;
+  position_state?: string | null;
+  final_action: string;
+  rejection_reason?: string | null;
+  confidence?: number | null;
+  rf_proba?: number | null;
+  regime?: string | null;
+  regime_label?: string | null;
+  reasons?: string[];
+  price?: string | null;
+  order_id?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CoachDecisionAudit {
+  items: CoachDecisionAuditItem[];
 }
 
 export class ApiError extends Error {
