@@ -25,5 +25,8 @@ PY
 echo "Running migrations..."
 alembic upgrade head
 
+echo "Ensuring market asset catalog..."
+python -m app.db.seed --assets-only
+
 echo "Starting API..."
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

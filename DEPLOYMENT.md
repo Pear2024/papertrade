@@ -115,7 +115,18 @@ docker compose -f docker-compose.prod.yml ps
 curl http://127.0.0.1:8000/health
 ```
 
-The API runs Alembic migrations before it starts. Future deployments use:
+The API runs Alembic migrations, then **ensures the market asset catalog**
+(`BTC`, `ETH`, `SOL`, …) before it starts. Schema alone is not enough — charts
+call `/prices/BTC/candles` and return `Asset 'BTC' not found` if `assets` is
+empty (common after a fresh volume or clone that skipped seed).
+
+You can also seed catalog rows without creating the demo user:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m app.db.seed --assets-only
+```
+
+Future deployments use:
 
 ```bash
 git pull

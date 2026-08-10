@@ -70,3 +70,48 @@ def seed_rows() -> list[dict]:
         }
         for a in ASSETS_CATALOG
     ]
+
+
+# Common exchange / UI aliases → catalog base symbols (BTC, ETH, …).
+_SYMBOL_ALIASES: dict[str, str] = {
+    "XBT": "BTC",
+    "XBTUSD": "BTC",
+    "XXBTZUSD": "BTC",
+    "BTCUSD": "BTC",
+    "BTCUSDT": "BTC",
+    "BTC/USD": "BTC",
+    "BTC/USDT": "BTC",
+    "XBT/USD": "BTC",
+    "ETHUSD": "ETH",
+    "ETHUSDT": "ETH",
+    "ETH/USD": "ETH",
+    "ETH/USDT": "ETH",
+    "SOLUSD": "SOL",
+    "SOLUSDT": "SOL",
+    "SOL/USD": "SOL",
+    "SOL/USDT": "SOL",
+}
+
+
+def normalize_symbol(symbol: str) -> str:
+    """Map pair aliases (BTCUSD, XBTUSD, BTC/USD) to catalog symbols like BTC."""
+    raw = (symbol or "").strip().upper().replace(" ", "")
+    if not raw:
+        return raw
+    if raw in _SYMBOL_ALIASES:
+        return _SYMBOL_ALIASES[raw]
+    # Strip common quote suffixes when base is a catalog symbol.
+    for quote in ("USDT", "USD", "USDC"):
+        if raw.endswith(quote) and len(raw) > len(quote):
+            base = raw[: -len(quote)]
+            if base == "XBT":
+                return "BTC"
+            if any(a["symbol"] == base for a in ASSETS_CATALOG):
+                return base
+    if "/" in raw:
+        base = raw.split("/", 1)[0]
+        if base == "XBT":
+            return "BTC"
+        if any(a["symbol"] == base for a in ASSETS_CATALOG):
+            return base
+    return raw

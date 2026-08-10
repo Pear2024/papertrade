@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.money import money, percent
-from app.core.assets_catalog import symbol_to_binance, symbol_to_coingecko
+from app.core.assets_catalog import normalize_symbol, symbol_to_binance, symbol_to_coingecko
 from app.models import Asset, PriceSnapshot, PriceSource
 
 SYMBOL_TO_COINGECKO_ID: dict[str, str] = symbol_to_coingecko()
@@ -67,15 +67,19 @@ def get_active_assets(db: Session) -> list[Asset]:
 
 
 def get_asset_by_symbol(db: Session, symbol: str) -> Asset | None:
-    return db.scalar(select(Asset).where(Asset.symbol == symbol.upper()))
+    key = normalize_symbol(symbol)
+    if not key:
+        return None
+    return db.scalar(select(Asset).where(Asset.symbol == key))
 
 
 def require_asset(db: Session, symbol: str) -> Asset:
     asset = get_asset_by_symbol(db, symbol)
     if asset is None or not asset.is_active:
+        shown = normalize_symbol(symbol) or symbol.upper()
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Asset '{symbol.upper()}' not found",
+            detail=f"Asset '{shown}' not found",
         )
     return asset
 

@@ -17,6 +17,16 @@ from app.core.config import get_settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # Fresh docker volumes / git-clone redeploys migrate schema but leave
+    # `assets` empty — charts then 404 with Asset 'BTC' not found.
+    try:
+        from app.db.seed import ensure_catalog_assets
+
+        count = ensure_catalog_assets()
+        print(f"Market catalog ready: {count} assets")
+    except Exception as exc:  # noqa: BLE001 — startup must still serve health
+        print(f"WARNING: could not ensure market assets: {exc}")
+
     if settings.kraken_feed_enabled:
         from app.services.kraken_market import start_kraken_feed, stop_kraken_feed
 

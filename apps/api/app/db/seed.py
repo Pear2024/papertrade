@@ -37,6 +37,7 @@ ASSETS = seed_rows()
 
 
 def seed_assets(db: Session) -> dict[str, Asset]:
+    """Idempotent catalog upsert — safe for production (no demo users/trades)."""
     by_symbol: dict[str, Asset] = {}
     for item in ASSETS:
         asset = db.scalar(select(Asset).where(Asset.symbol == item["symbol"]))
@@ -58,8 +59,35 @@ def seed_assets(db: Session) -> dict[str, Asset]:
                     source=PriceSource.manual,
                 )
             )
+        else:
+            # Keep existing rows active and aligned with the catalog.
+            asset.name = item["name"]
+            asset.price_precision = item["price_precision"]
+            asset.quantity_precision = item["quantity_precision"]
+            asset.is_active = True
         by_symbol[item["symbol"]] = asset
     return by_symbol
+
+
+def ensure_catalog_assets() -> int:
+    """Ensure tradable majors exist after migrate/redeploy (all environments).
+
+    Returns the number of catalog symbols present after the upsert.
+    Never creates demo users or sample trades.
+    """
+    if not check_database_connection():
+        raise RuntimeError("Database is not reachable — cannot seed market assets")
+
+    db = SessionLocal()
+    try:
+        assets = seed_assets(db)
+        db.commit()
+        return len(assets)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def seed_demo_user(db: Session, assets: dict[str, Asset]) -> User:
@@ -221,10 +249,20 @@ def _seed_sample_activity(
     )
 
 
-def run_seed() -> None:
+def run_seed(*, assets_only: bool = False) -> None:
     settings = get_settings()
-    if settings.environment.lower() not in {"development", "dev", "local", "test"}:
-        raise RuntimeError("Seed is allowed only in development-like environments")
+    env = settings.environment.lower()
+    if assets_only:
+        count = ensure_catalog_assets()
+        print(f"Catalog assets ensured ({count} symbols).")
+        print(f"  Assets: {', '.join(item['symbol'] for item in ASSETS)}")
+        return
+
+    if env not in {"development", "dev", "local", "test"}:
+        raise RuntimeError(
+            "Full seed (demo user) is allowed only in development-like environments. "
+            "For production catalogs use: python -m app.db.seed --assets-only"
+        )
 
     if not check_database_connection():
         raise RuntimeError("Database is not reachable — start MySQL and check DATABASE_URL")
@@ -247,4 +285,6 @@ def run_seed() -> None:
 
 
 if __name__ == "__main__":
-    run_seed()
+    import sys
+
+    run_seed(assets_only="--assets-only" in sys.argv)
