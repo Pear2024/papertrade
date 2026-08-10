@@ -62,6 +62,10 @@ class User(Base):
 
     trading_accounts: Mapped[list[TradingAccount]] = relationship(back_populates="user")
     journals: Mapped[list[TradingJournal]] = relationship(back_populates="user")
+    lab_hypotheses: Mapped[list["LabHypothesis"]] = relationship(back_populates="user")
+    coach_settings: Mapped[Optional["UserCoachSettings"]] = relationship(
+        back_populates="user", uselist=False
+    )
 
 
 class TradingAccount(Base):
@@ -302,21 +306,94 @@ class RiskRule(Base):
     trading_account: Mapped[TradingAccount] = relationship(back_populates="risk_rules")
 
 
+class LabHypothesis(Base):
+    """Per-user Hypothesis Lab row (replaces shared hypotheses.json)."""
+
+    __tablename__ = "lab_hypotheses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column(String(40), unique=True, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0.0")
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    natural_language_prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    structured_rules_json: Mapped[str] = mapped_column(Text, nullable=False)
+    parser: Mapped[str] = mapped_column(String(32), nullable=False, default="regex")
+    promoted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    paper_profile_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="lab_hypotheses")
+    backtests: Mapped[list["LabBacktest"]] = relationship(
+        back_populates="hypothesis", cascade="all, delete-orphan"
+    )
+
+
+class LabBacktest(Base):
+    """Causal backtest run owned via parent hypothesis (user-scoped)."""
+
+    __tablename__ = "lab_backtests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    public_id: Mapped[str] = mapped_column(String(40), unique=True, nullable=False, index=True)
+    hypothesis_id: Mapped[int] = mapped_column(
+        ForeignKey("lab_hypotheses.id"), nullable=False, index=True
+    )
+    ran_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    result_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    hypothesis: Mapped[LabHypothesis] = relationship(back_populates="backtests")
+
+
+class UserCoachSettings(Base):
+    """Per-user Coach/AUTO preferences (replaces browser-only localStorage)."""
+
+    __tablename__ = "user_coach_settings"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    settings_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    auto_session_enabled: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(back_populates="coach_settings")
+
+
 class CoachSignalEvent(Base):
     """Persisted coach verdicts for hypothesis analysis (paper only)."""
 
     __tablename__ = "coach_signal_events"
     __table_args__ = (
         UniqueConstraint(
+            "user_id",
             "symbol",
             "interval",
             "evaluated_bar_time",
             "brain",
-            name="uq_coach_signal_bar",
+            name="uq_coach_signal_bar_user",
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Nullable for legacy rows; new writes always set the authenticated owner.
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     symbol: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     interval: Mapped[str] = mapped_column(String(8), nullable=False, index=True)
     brain: Mapped[str] = mapped_column(String(80), nullable=False, default="DayTradeCryptoCoach")

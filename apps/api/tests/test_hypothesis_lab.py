@@ -2,9 +2,14 @@ import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.core.security import hash_password
+from app.models import AccountMode, Asset, RiskRule, TradingAccount, User
+from app.research.experiment_engine.runner import Candle
 from app.services import hypothesis_lab, lab_auto
 from app.services.hypothesis_lab import parse_prompt
-from app.research.experiment_engine.runner import Candle
 from app.services.prices import CandleBar
 
 
@@ -66,28 +71,76 @@ def test_normalize_caps_chart_emas_at_five() -> None:
     })
     assert rules["chart_emas"] == [9, 12, 21, 26, 50]
 
-def test_create_hypothesis_records_ollama_parser(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(hypothesis_lab, "STORE_PATH", tmp_path / "hypotheses.json")
+
+def _seed_user(db_session: Session, email: str, *, plan: str = "free") -> User:
+    user = User(
+        email=email,
+        password_hash=hash_password("SecurePass1!"),
+        display_name=email.split("@")[0],
+        subscription_plan=plan,
+    )
+    db_session.add(user)
+    db_session.flush()
+    account = TradingAccount(
+        user_id=user.id,
+        account_name="Paper Account",
+        account_mode=AccountMode.paper,
+        starting_balance=Decimal("10000"),
+        cash_balance=Decimal("10000"),
+        realized_pnl=Decimal("0"),
+        currency="USD",
+        is_active=True,
+    )
+    db_session.add(account)
+    db_session.flush()
+    db_session.add(
+        RiskRule(
+            trading_account_id=account.id,
+            max_risk_percent_per_trade=Decimal("50"),
+            max_daily_loss_percent=Decimal("50"),
+            max_trades_per_day=50,
+            require_stop_loss=True,
+            trading_enabled=True,
+        )
+    )
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+def _login(client: TestClient, email: str) -> dict[str, str]:
+    login = client.post("/auth/login", json={"email": email, "password": "SecurePass1!"})
+    assert login.status_code == 200
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+def test_create_hypothesis_records_ollama_parser(db_session: Session, monkeypatch) -> None:
+    user = _seed_user(db_session, "lab-ollama@example.com")
     monkeypatch.setattr(
         hypothesis_lab,
         "_parse_prompt_with_llm_provider",
         lambda prompt: (hypothesis_lab.normalize_rules({"symbol": "ETHUSDT"}), "ollama"),
     )
 
-    row = hypothesis_lab.create_hypothesis(1, "ETHUSDT trend continuation", None, None)
+    row = hypothesis_lab.create_hypothesis(
+        db_session, user.id, "ETHUSDT trend continuation", None, None
+    )
 
     assert row["parser"] == "ollama"
     assert row["structured_rules"]["symbol"] == "ETHUSDT"
+    assert row["owner_id"] == user.id
 
 
-def test_create_hypothesis_falls_back_to_rules_engine(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(hypothesis_lab, "STORE_PATH", tmp_path / "hypotheses.json")
+def test_create_hypothesis_falls_back_to_rules_engine(db_session: Session, monkeypatch) -> None:
+    user = _seed_user(db_session, "lab-regex@example.com")
 
     def unavailable(prompt: str) -> tuple[dict, str]:
         raise RuntimeError("Ollama is unavailable")
 
     monkeypatch.setattr(hypothesis_lab, "_parse_prompt_with_llm_provider", unavailable)
-    row = hypothesis_lab.create_hypothesis(1, "BTCUSDT volume 2x and 3R", None, None)
+    row = hypothesis_lab.create_hypothesis(
+        db_session, user.id, "BTCUSDT volume 2x and 3R", None, None
+    )
 
     assert row["parser"] == "regex"
     assert row["structured_rules"]["filters"]["volume_multiple"] == 2
@@ -168,3 +221,85 @@ def test_promoted_lab_signal_becomes_next_open_entry(monkeypatch) -> None:
     assert verdict.phase == "ENTRY_BUY"
     assert verdict.entry_fill == "next_open"
     assert verdict.entry_fill_price == candles[209].open
+
+
+def test_hypothesis_lab_owner_isolation(
+    client: TestClient,
+    db_session: Session,
+    seeded_assets: dict[str, Asset],
+    monkeypatch,
+) -> None:
+    _ = seeded_assets
+    monkeypatch.setattr(
+        hypothesis_lab,
+        "_parse_prompt_with_llm_provider",
+        lambda prompt: (hypothesis_lab.normalize_rules({"symbol": "BTCUSDT"}), "regex"),
+    )
+    user_a = _seed_user(db_session, "owner-a@example.com", plan="pro")
+    user_b = _seed_user(db_session, "owner-b@example.com", plan="pro")
+    header_a = _login(client, "owner-a@example.com")
+    header_b = _login(client, "owner-b@example.com")
+
+    created = client.post(
+        "/hypothesis-lab",
+        headers=header_a,
+        json={"prompt": "BTCUSDT EMA cross volume 1.5x 2R", "name": "A only"},
+    )
+    assert created.status_code == 200
+    hyp_id = created.json()["id"]
+
+    list_a = client.get("/hypothesis-lab", headers=header_a)
+    list_b = client.get("/hypothesis-lab", headers=header_b)
+    assert list_a.status_code == 200
+    assert list_b.status_code == 200
+    assert any(item["id"] == hyp_id for item in list_a.json()["items"])
+    assert all(item["id"] != hyp_id for item in list_b.json()["items"])
+
+    get_b = client.get(f"/hypothesis-lab/{hyp_id}", headers=header_b)
+    assert get_b.status_code == 404
+
+    promote_b = client.post(f"/hypothesis-lab/{hyp_id}/promote", headers=header_b)
+    assert promote_b.status_code == 404
+
+    promote_a = client.post(f"/hypothesis-lab/{hyp_id}/promote", headers=header_a)
+    assert promote_a.status_code == 200
+    assert promote_a.json()["promoted_at"] is not None
+    assert promote_a.json()["paper_profile"]["hypothesis_id"] == hyp_id
+
+    # Promoted profiles on Market/Coach pickers come from owner-scoped list only.
+    promoted_b = [
+        item for item in client.get("/hypothesis-lab", headers=header_b).json()["items"]
+        if item.get("promoted_at")
+    ]
+    assert promoted_b == []
+    assert user_a.id != user_b.id
+
+
+def test_coach_settings_are_per_user(
+    client: TestClient,
+    db_session: Session,
+    seeded_assets: dict[str, Asset],
+) -> None:
+    _ = seeded_assets
+    _seed_user(db_session, "coach-a@example.com")
+    _seed_user(db_session, "coach-b@example.com")
+    header_a = _login(client, "coach-a@example.com")
+    header_b = _login(client, "coach-b@example.com")
+
+    put_a = client.put(
+        "/account/coach-settings",
+        headers=header_a,
+        json={"settings": {"autoStakeUsd": 1234, "labHypothesisId": "lab-aaa"}, "auto_session_enabled": True},
+    )
+    assert put_a.status_code == 200
+    assert put_a.json()["settings"]["autoStakeUsd"] == 1234
+    assert put_a.json()["auto_session_enabled"] is True
+
+    get_b = client.get("/account/coach-settings", headers=header_b)
+    assert get_b.status_code == 200
+    assert get_b.json()["settings"]["autoStakeUsd"] != 1234
+    assert get_b.json()["settings"]["labHypothesisId"] is None
+    assert get_b.json()["auto_session_enabled"] is None
+
+    get_a = client.get("/account/coach-settings", headers=header_a)
+    assert get_a.json()["settings"]["labHypothesisId"] == "lab-aaa"

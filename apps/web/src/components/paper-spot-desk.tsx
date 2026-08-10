@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
-import { feeCoverTpFrac, saveCoachSettings } from "@/lib/coach-settings";
+import { feeCoverTpFrac } from "@/lib/coach-settings";
 import { formatMoney, formatPercent, formatQty } from "@/lib/format";
 import {
   exitPriceDigits,
@@ -53,7 +53,7 @@ function buildDepthPreview(mid: number) {
 
 export function PaperSpotDesk({ symbol = "BTC" }: { symbol?: string }) {
   const queryClient = useQueryClient();
-  const { settings } = useCoachSettings();
+  const { settings, update } = useCoachSettings();
   const [side, setSide] = useState<Side>("buy");
   const [pct, setPct] = useState(50);
   const [usdAmount, setUsdAmount] = useState(String(settings.autoStakeUsd));
@@ -212,7 +212,7 @@ export function PaperSpotDesk({ symbol = "BTC" }: { symbol?: string }) {
   const estRoundTrip = estFee * 2;
 
   const setLeverage = (value: number) => {
-    saveCoachSettings({ leverage: value });
+    update({ leverage: value });
   };
 
   const plannedTp = useMemo(() => {

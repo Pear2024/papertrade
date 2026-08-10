@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { setToken } from "@/lib/api";
+import { clearCoachLocalCache } from "@/lib/coach-settings";
 
 export default function GoogleAuthCallbackPage() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export default function GoogleAuthCallbackPage() {
       setError("Google sign-in did not return a session. Please try again.");
       return;
     }
+    clearCoachLocalCache();
     setToken(token);
     router.replace("/dashboard");
   }, [router]);

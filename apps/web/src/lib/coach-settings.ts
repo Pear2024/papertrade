@@ -75,6 +75,41 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
+export function coachSettingsCacheKey(userId: number | string | null | undefined): string {
+  return userId == null ? COACH_SETTINGS_KEY : `${COACH_SETTINGS_KEY}:u${userId}`;
+}
+
+export function autoSessionCacheKey(userId: number | string | null | undefined): string {
+  return userId == null ? AUTO_SESSION_KEY : `${AUTO_SESSION_KEY}:u${userId}`;
+}
+
+/** Remove legacy + per-user coach caches so the next account cannot inherit prefs. */
+export function clearCoachLocalCache(): void {
+  if (typeof window === "undefined") return;
+  const keys = [
+    COACH_SETTINGS_KEY,
+    ENTRY_SIGNAL_KEY,
+    AUTO_SESSION_KEY,
+  ];
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key) continue;
+    if (
+      key.startsWith(`${COACH_SETTINGS_KEY}:`) ||
+      key.startsWith(`${AUTO_SESSION_KEY}:`)
+    ) {
+      keys.push(key);
+    }
+  }
+  for (const key of Array.from(new Set(keys))) {
+    window.localStorage.removeItem(key);
+  }
+  window.dispatchEvent(new CustomEvent(COACH_SETTINGS_EVENT, { detail: { ...DEFAULT_COACH_SETTINGS } }));
+  window.dispatchEvent(
+    new CustomEvent(AUTO_SESSION_EVENT, { detail: DEFAULT_COACH_SETTINGS.autoOnDefault }),
+  );
+}
+
 export function normalizeCoachSettings(
   raw: Partial<CoachSettings> | null | undefined,
 ): CoachSettings {
@@ -99,21 +134,27 @@ export function normalizeCoachSettings(
   };
 }
 
-function persistMigratedLab(settings: CoachSettings): CoachSettings {
+function persistLocal(
+  settings: CoachSettings,
+  userId?: number | string | null,
+): CoachSettings {
   if (typeof window === "undefined") return settings;
   window.localStorage.setItem(ENTRY_SIGNAL_KEY, "lab");
-  window.localStorage.setItem(COACH_SETTINGS_KEY, JSON.stringify(settings));
+  window.localStorage.setItem(coachSettingsCacheKey(userId), JSON.stringify(settings));
   return settings;
 }
 
-export function loadCoachSettings(): CoachSettings {
+export function loadCoachSettings(userId?: number | string | null): CoachSettings {
   if (typeof window === "undefined") return { ...DEFAULT_COACH_SETTINGS };
   try {
-    const raw = window.localStorage.getItem(COACH_SETTINGS_KEY);
-    if (!raw) {
-      return persistMigratedLab({ ...DEFAULT_COACH_SETTINGS });
+    const keyed = window.localStorage.getItem(coachSettingsCacheKey(userId));
+    const legacy =
+      userId != null ? window.localStorage.getItem(COACH_SETTINGS_KEY) : keyed;
+    const rawText = keyed ?? legacy;
+    if (!rawText) {
+      return persistLocal({ ...DEFAULT_COACH_SETTINGS }, userId);
     }
-    const parsed = JSON.parse(raw) as Record<string, unknown> & {
+    const parsed = JSON.parse(rawText) as Record<string, unknown> & {
       stakeMigratedTo20?: boolean;
       stakeMigratedTo100?: boolean;
       stakeMigratedTo20000?: boolean;
@@ -142,47 +183,59 @@ export function loadCoachSettings(): CoachSettings {
       legacyEntrySignal === "a4" ||
       legacyEntrySignal === "ccr" ||
       legacyEntrySignal == null;
-    if (needsMigrate) {
-      return persistMigratedLab(normalized);
+    if (needsMigrate || !keyed) {
+      return persistLocal(normalized, userId);
     }
     return normalized;
   } catch {
-    return persistMigratedLab({ ...DEFAULT_COACH_SETTINGS });
+    return persistLocal({ ...DEFAULT_COACH_SETTINGS }, userId);
   }
 }
 
 /** @deprecated Entry is Lab-only; kept so callers still sync labHypothesisId flows. */
-export function saveEntrySignal(_entrySignal: EntrySignal = "lab"): CoachSettings {
+export function saveEntrySignal(
+  _entrySignal: EntrySignal = "lab",
+  userId?: number | string | null,
+): CoachSettings {
   if (typeof window === "undefined") {
     return { ...DEFAULT_COACH_SETTINGS };
   }
-  const next = { ...loadCoachSettings(), entrySignal: "lab" as const };
-  window.localStorage.setItem(ENTRY_SIGNAL_KEY, "lab");
-  window.localStorage.setItem(COACH_SETTINGS_KEY, JSON.stringify(next));
+  const next = { ...loadCoachSettings(userId), entrySignal: "lab" as const };
+  persistLocal(next, userId);
   window.dispatchEvent(new CustomEvent(COACH_SETTINGS_EVENT, { detail: next }));
   return next;
 }
 
-export function loadAutoSession(defaultOn: boolean): boolean {
+export function loadAutoSession(
+  defaultOn: boolean,
+  userId?: number | string | null,
+): boolean {
   if (typeof window === "undefined") return defaultOn;
-  const raw = window.localStorage.getItem(AUTO_SESSION_KEY);
+  const raw =
+    window.localStorage.getItem(autoSessionCacheKey(userId)) ??
+    (userId != null ? window.localStorage.getItem(AUTO_SESSION_KEY) : null);
   if (raw === "1") return true;
   if (raw === "0") return false;
   return defaultOn;
 }
 
-export function saveAutoSession(enabled: boolean): void {
+export function saveAutoSession(
+  enabled: boolean,
+  userId?: number | string | null,
+): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(AUTO_SESSION_KEY, enabled ? "1" : "0");
+  window.localStorage.setItem(autoSessionCacheKey(userId), enabled ? "1" : "0");
   window.dispatchEvent(new CustomEvent(AUTO_SESSION_EVENT, { detail: enabled }));
 }
 
-export function saveLabHypothesisId(labHypothesisId: string | null): CoachSettings {
-  const current = loadCoachSettings();
+export function saveLabHypothesisId(
+  labHypothesisId: string | null,
+  userId?: number | string | null,
+): CoachSettings {
+  const current = loadCoachSettings(userId);
   const next = { ...current, entrySignal: "lab" as const, labHypothesisId };
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(ENTRY_SIGNAL_KEY, "lab");
-    window.localStorage.setItem(COACH_SETTINGS_KEY, JSON.stringify(next));
+    persistLocal(next, userId);
     window.dispatchEvent(new CustomEvent(COACH_SETTINGS_EVENT, { detail: next }));
   }
   return next;
@@ -190,32 +243,52 @@ export function saveLabHypothesisId(labHypothesisId: string | null): CoachSettin
 
 /**
  * Saves editable Coach settings only. Entry source is always Lab.
+ * Local cache only — callers that are authenticated should also PUT the API.
  */
-export function saveCoachSettings(next: CoachSettingsUpdate): CoachSettings {
+export function saveCoachSettings(
+  next: CoachSettingsUpdate,
+  userId?: number | string | null,
+): CoachSettings {
   const { entrySignal: _ignored, ...editable } = next as Partial<CoachSettings>;
-  const current = loadCoachSettings();
+  const current = loadCoachSettings(userId);
   const merged = normalizeCoachSettings({
     ...current,
     ...editable,
     entrySignal: "lab",
   });
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(ENTRY_SIGNAL_KEY, "lab");
-    window.localStorage.setItem(COACH_SETTINGS_KEY, JSON.stringify(merged));
+    persistLocal(merged, userId);
     window.dispatchEvent(new CustomEvent(COACH_SETTINGS_EVENT, { detail: merged }));
   }
   return merged;
 }
 
-/** Explicitly restore Lab-oriented coach defaults. */
-export function restoreCoachDefaults(): CoachSettings {
+/** Explicitly restore Lab-oriented coach defaults (local cache). */
+export function restoreCoachDefaults(userId?: number | string | null): CoachSettings {
   if (typeof window === "undefined") return { ...DEFAULT_COACH_SETTINGS };
   const next = { ...DEFAULT_COACH_SETTINGS };
-  window.localStorage.setItem(ENTRY_SIGNAL_KEY, "lab");
-  window.localStorage.setItem(COACH_SETTINGS_KEY, JSON.stringify(next));
-  window.localStorage.removeItem(AUTO_SESSION_KEY);
+  persistLocal(next, userId);
+  window.localStorage.removeItem(autoSessionCacheKey(userId));
   window.dispatchEvent(new CustomEvent(AUTO_SESSION_EVENT, { detail: next.autoOnDefault }));
   window.dispatchEvent(new CustomEvent(COACH_SETTINGS_EVENT, { detail: next }));
+  return next;
+}
+
+/** Apply server prefs into the per-user local cache. */
+export function applyServerCoachPrefs(
+  settings: Partial<CoachSettings>,
+  autoSessionEnabled: boolean | null | undefined,
+  userId: number | string,
+): CoachSettings {
+  const next = normalizeCoachSettings(settings);
+  persistLocal(next, userId);
+  if (typeof window !== "undefined") {
+    if (typeof autoSessionEnabled === "boolean") {
+      window.localStorage.setItem(autoSessionCacheKey(userId), autoSessionEnabled ? "1" : "0");
+      window.dispatchEvent(new CustomEvent(AUTO_SESSION_EVENT, { detail: autoSessionEnabled }));
+    }
+    window.dispatchEvent(new CustomEvent(COACH_SETTINGS_EVENT, { detail: next }));
+  }
   return next;
 }
 

@@ -11,9 +11,8 @@ import { PaperBanner } from "@/components/layout/paper-banner";
 import { useCoachSettings } from "@/hooks/use-coach-settings";
 import {
   type CoachSettings,
+  applyServerCoachPrefs,
   normalizeCoachSettings,
-  restoreCoachDefaults,
-  saveCoachSettings,
 } from "@/lib/coach-settings";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -62,7 +61,7 @@ const INTERVAL_OPTIONS: CandleInterval[] = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
 export default function SettingsPage() {
   const queryClient = useQueryClient();
-  const { settings: coachSettings } = useCoachSettings();
+  const { settings: coachSettings, update: updateCoach, userId } = useCoachSettings();
   const [coachForm, setCoachForm] = useState<CoachSettings>(coachSettings);
   const [coachMsg, setCoachMsg] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
@@ -154,7 +153,7 @@ export default function SettingsPage() {
   const saveCoach = () => {
     const { entrySignal: _entrySignal, ...editableSettings } =
       normalizeCoachSettings(coachForm);
-    const next = saveCoachSettings(editableSettings);
+    const next = updateCoach(editableSettings);
     setCoachForm(next);
     setCoachMsg(
       `Coach auto saved · Lab · ${next.interval} · tick ${next.autoTickSeconds}s · stake $${next.autoStakeUsd} · ${next.leverage}x · SL ${next.slPct}% / TP ${next.tpPct}% · min net R:R ${next.minNetRr} · slip ${next.slippageBps}bps · spread ${next.spreadBps}bps`,
@@ -162,9 +161,38 @@ export default function SettingsPage() {
   };
 
   const resetCoachDefaults = () => {
-    const next = restoreCoachDefaults();
-    setCoachForm(next);
-    setCoachMsg("Coach auto restored to Lab defaults.");
+    void api
+      .restoreCoachSettings()
+      .then((prefs) => {
+        const next =
+          userId != null
+            ? applyServerCoachPrefs(
+                prefs.settings as Partial<CoachSettings>,
+                prefs.auto_session_enabled,
+                userId,
+              )
+            : normalizeCoachSettings(prefs.settings as Partial<CoachSettings>);
+        setCoachForm(next);
+        setCoachMsg("Coach auto restored to Lab defaults.");
+      })
+      .catch(() => {
+        const next = updateCoach({
+          labHypothesisId: null,
+          autoStakeUsd: 20000,
+          autoTickSeconds: 60,
+          interval: "15m",
+          autoOnDefault: true,
+          slPct: 2,
+          tpPct: 7.5,
+          tpUsd: 70,
+          leverage: 5,
+          minNetRr: 2,
+          slippageBps: 3,
+          spreadBps: 2,
+        });
+        setCoachForm(next);
+        setCoachMsg("Coach auto restored to Lab defaults.");
+      });
   };
 
   if (settingsQuery.isLoading) return <Skeleton className="h-80 w-full" />;

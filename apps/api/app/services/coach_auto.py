@@ -341,7 +341,7 @@ async def run_auto_tick(
     from app.services.coach_signal_store import persist_coach_signal
     from dataclasses import replace as dc_replace
 
-    persist_coach_signal(db, verdict)
+    persist_coach_signal(db, verdict, user_id=user.id)
 
     if notify and strategy_key == "A":
         await notify_coach_signal(verdict, suggested_usd=float(usd_amount))
@@ -493,7 +493,7 @@ async def run_auto_tick(
                 take_profit=None,
                 risk_reward=None,
             )
-            persist_coach_signal(db, exit_verdict)
+            persist_coach_signal(db, exit_verdict, user_id=user.id)
             if notify and strategy_key == "A":
                 await notify_coach_signal(
                     exit_verdict, suggested_usd=float(usd_amount), force=True

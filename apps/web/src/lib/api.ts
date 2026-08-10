@@ -161,6 +161,28 @@ export const api = {
   accountSettings: () => apiFetch<AccountSettings>("/account/settings", {}, true),
   updateAccountSettings: (payload: Record<string, unknown>) =>
     apiFetch<AccountSettings>("/account/settings", { method: "PATCH", body: JSON.stringify(payload) }, true),
+  coachSettings: () =>
+    apiFetch<{ settings: Record<string, unknown>; auto_session_enabled: boolean | null }>(
+      "/account/coach-settings",
+      {},
+      true,
+    ),
+  updateCoachSettings: (payload: {
+    settings?: Record<string, unknown>;
+    auto_session_enabled?: boolean | null;
+    clear_auto_session?: boolean;
+  }) =>
+    apiFetch<{ settings: Record<string, unknown>; auto_session_enabled: boolean | null }>(
+      "/account/coach-settings",
+      { method: "PUT", body: JSON.stringify(payload) },
+      true,
+    ),
+  restoreCoachSettings: () =>
+    apiFetch<{ settings: Record<string, unknown>; auto_session_enabled: boolean | null }>(
+      "/account/coach-settings/restore",
+      { method: "POST" },
+      true,
+    ),
   resetAccount: (payload: { confirm: boolean; reason?: string }) =>
     apiFetch<AccountResetRecord>("/account/reset", { method: "POST", body: JSON.stringify(payload) }, true),
   resetHistory: () => apiFetch<AccountResetRecord[]>("/account/reset-history", {}, true),

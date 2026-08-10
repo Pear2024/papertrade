@@ -66,6 +66,7 @@ def _trade_side_from_phase(phase: str) -> str | None:
 def _seq_and_entry_price(
     db: Session,
     *,
+    user_id: int | None,
     symbol: str,
     interval: str,
     brain: str,
@@ -84,7 +85,7 @@ def _seq_and_entry_price(
         return 1, price, pct, False
 
     want_entry = "ENTRY_BUY" if alert_long else "ENTRY_SELL"
-    prior = db.scalar(
+    prior_q = (
         select(CoachSignalEvent)
         .where(
             CoachSignalEvent.symbol == symbol,
@@ -96,12 +97,15 @@ def _seq_and_entry_price(
         .order_by(CoachSignalEvent.evaluated_bar_time.desc())
         .limit(1)
     )
+    if user_id is not None:
+        prior_q = prior_q.where(CoachSignalEvent.user_id == user_id)
+    prior = db.scalar(prior_q)
     if prior is None or (prior.entry_price is None and prior.price is None):
         pct, _ = _pnl_vs_entry(trade_side, price, price)
         return 1, price, pct, False
 
     entry_px = prior.entry_price if prior.entry_price is not None else prior.price
-    n_prior = db.scalar(
+    count_q = (
         select(func.count())
         .select_from(CoachSignalEvent)
         .where(
@@ -117,6 +121,9 @@ def _seq_and_entry_price(
             ),
         )
     )
+    if user_id is not None:
+        count_q = count_q.where(CoachSignalEvent.user_id == user_id)
+    n_prior = db.scalar(count_q)
     # Fallback when older rows lack phase: count by alert_side / entry streak.
     if n_prior is None:
         n_prior = 0
@@ -125,7 +132,12 @@ def _seq_and_entry_price(
     return seq, entry_px, pct, still
 
 
-def persist_coach_signal(db: Session, verdict: CoachVerdict) -> CoachSignalEvent | None:
+def persist_coach_signal(
+    db: Session,
+    verdict: CoachVerdict,
+    *,
+    user_id: int | None = None,
+) -> CoachSignalEvent | None:
     """Upsert one row per closed bar; fill phase + seq/pnl vs ENTRY."""
     if not verdict.bar_closed or verdict.evaluated_bar_time is None:
         return None
@@ -153,17 +165,21 @@ def persist_coach_signal(db: Session, verdict: CoachVerdict) -> CoachSignalEvent
         separators=(",", ":"),
     )
 
-    existing = db.scalar(
-        select(CoachSignalEvent).where(
-            CoachSignalEvent.symbol == symbol,
-            CoachSignalEvent.interval == verdict.interval,
-            CoachSignalEvent.evaluated_bar_time == verdict.evaluated_bar_time,
-            CoachSignalEvent.brain == brain,
-        )
+    existing_q = select(CoachSignalEvent).where(
+        CoachSignalEvent.symbol == symbol,
+        CoachSignalEvent.interval == verdict.interval,
+        CoachSignalEvent.evaluated_bar_time == verdict.evaluated_bar_time,
+        CoachSignalEvent.brain == brain,
     )
+    if user_id is not None:
+        existing_q = existing_q.where(CoachSignalEvent.user_id == user_id)
+    else:
+        existing_q = existing_q.where(CoachSignalEvent.user_id.is_(None))
+    existing = db.scalar(existing_q)
 
     seq, entry_px, pnl_pct, still = _seq_and_entry_price(
         db,
+        user_id=user_id,
         symbol=symbol,
         interval=verdict.interval,
         brain=brain,
@@ -174,6 +190,7 @@ def persist_coach_signal(db: Session, verdict: CoachVerdict) -> CoachSignalEvent
 
     if existing is None:
         row = CoachSignalEvent(
+            user_id=user_id,
             symbol=symbol,
             interval=verdict.interval,
             brain=brain,
@@ -209,8 +226,9 @@ def persist_coach_signal(db: Session, verdict: CoachVerdict) -> CoachSignalEvent
         db.commit()
         db.refresh(row)
         logger.info(
-            "coach_signal_stored id=%s %s phase=%s seq=%s pnl=%s",
+            "coach_signal_stored id=%s user=%s %s phase=%s seq=%s pnl=%s",
             row.id,
+            row.user_id,
             row.symbol,
             row.phase,
             row.seq_from_entry,
@@ -218,6 +236,7 @@ def persist_coach_signal(db: Session, verdict: CoachVerdict) -> CoachSignalEvent
         )
         return row
 
+    existing.user_id = user_id if user_id is not None else existing.user_id
     existing.signal = verdict.signal
     existing.entry = entry
     existing.trend = trend
@@ -250,6 +269,7 @@ def persist_coach_signal(db: Session, verdict: CoachVerdict) -> CoachSignalEvent
 def list_coach_signals(
     db: Session,
     *,
+    user_id: int | None = None,
     symbol: str | None = None,
     interval: str | None = None,
     entry_only: bool = False,
@@ -259,6 +279,8 @@ def list_coach_signals(
         CoachSignalEvent.evaluated_bar_time.desc(),
         CoachSignalEvent.id.desc(),
     )
+    if user_id is not None:
+        q = q.where(CoachSignalEvent.user_id == user_id)
     if symbol:
         q = q.where(CoachSignalEvent.symbol == symbol.upper())
     if interval:

@@ -15,7 +15,7 @@ import { TradeChecklist } from "@/components/trade-checklist";
 import { BarCountdown } from "@/components/bar-countdown";
 import { useAutoSession, useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
-import { coachSettingsToApiParams, saveLabHypothesisId } from "@/lib/coach-settings";
+import { coachSettingsToApiParams } from "@/lib/coach-settings";
 import { formatMoney } from "@/lib/format";
 import { resolveSlTpPct } from "@/lib/sl-tp";
 import { cn } from "@/lib/utils";
@@ -30,7 +30,7 @@ type Props = {
  * Lab-only paper desk: promoted hypothesis profile drives signal + AUTO.
  */
 export function SignalAutoCard({ symbol = "BTC", className }: Props) {
-  const { settings } = useCoachSettings();
+  const { settings, update } = useCoachSettings();
   const ruleOpts = coachSettingsToApiParams(settings, symbol);
   const { slPct: effSlPct, tpPct: effTpPct } = resolveSlTpPct(
     symbol,
@@ -55,9 +55,9 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
 
   useEffect(() => {
     if (activeLab && settings.labHypothesisId !== activeLab.id) {
-      saveLabHypothesisId(activeLab.id);
+      update({ labHypothesisId: activeLab.id });
     }
-  }, [activeLab, settings.labHypothesisId]);
+  }, [activeLab, settings.labHypothesisId, update]);
 
   const signalQuery = useQuery({
     queryKey: [
@@ -268,7 +268,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
             {promotedLab.length > 0 ? (
               <Select
                 value={activeLab?.id ?? ""}
-                onValueChange={(id) => saveLabHypothesisId(id)}
+                onValueChange={(id) => update({ labHypothesisId: id })}
               >
                 <SelectTrigger className="h-8 min-w-52">
                   <SelectValue placeholder="Choose promoted profile" />

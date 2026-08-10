@@ -1,9 +1,11 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 
 import { api, getToken, setToken } from "@/lib/api";
+import { clearCoachLocalCache } from "@/lib/coach-settings";
 import { ApiError, AuthUser } from "@/lib/types";
 
 interface AuthContextValue {
@@ -24,6 +26,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const clearUserScopedClientState = useCallback(() => {
+    clearCoachLocalCache();
+    queryClient.clear();
+  }, [queryClient]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -58,14 +66,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (email: string, password: string) => {
+    clearUserScopedClientState();
     const result = await api.login({ email, password });
     setToken(result.access_token);
     setUser(result.user);
     router.push("/dashboard");
-  }, [router]);
+  }, [clearUserScopedClientState, router]);
 
   const register = useCallback(
     async (email: string, password: string, displayName: string) => {
+      clearUserScopedClientState();
       const result = await api.register({
         email,
         password,
@@ -75,14 +85,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(result.user);
       router.push("/dashboard");
     },
-    [router],
+    [clearUserScopedClientState, router],
   );
 
   const logout = useCallback(() => {
+    clearUserScopedClientState();
     setToken(null);
     setUser(null);
     router.push("/login");
-  }, [router]);
+  }, [clearUserScopedClientState, router]);
 
   const value = useMemo(
     () => ({

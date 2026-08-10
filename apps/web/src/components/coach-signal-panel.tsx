@@ -12,7 +12,7 @@ import { TradeChecklist } from "@/components/trade-checklist";
 import { BarCountdown } from "@/components/bar-countdown";
 import { useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
-import { coachSettingsToApiParams, saveLabHypothesisId } from "@/lib/coach-settings";
+import { coachSettingsToApiParams } from "@/lib/coach-settings";
 import { formatMoney } from "@/lib/format";
 import { CandleInterval } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -140,7 +140,7 @@ export function CoachSignalPanel({
           {promotedLab.length > 0 ? (
             <Select
               value={activeLab?.id ?? ""}
-              onValueChange={(id) => saveLabHypothesisId(id)}
+              onValueChange={(id) => update({ labHypothesisId: id })}
             >
               <SelectTrigger className="h-7 min-w-44 text-xs">
                 <SelectValue placeholder="Lab profile" />

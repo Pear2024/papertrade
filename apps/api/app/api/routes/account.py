@@ -14,7 +14,9 @@ from app.schemas.analytics import (
     AccountSettingsResponse,
     AccountSettingsUpdate,
 )
+from app.schemas.coach_prefs import CoachPrefsResponse, CoachPrefsUpdate
 from app.services import account as account_service
+from app.services import coach_prefs as coach_prefs_service
 from app.services import settings as settings_service
 from app.services.trading import get_paper_account_for_user
 
@@ -53,6 +55,39 @@ def patch_settings(
     db: Session = Depends(get_db),
 ) -> AccountSettingsResponse:
     return settings_service.update_settings(db, current_user, payload)
+
+
+@router.get("/coach-settings", response_model=CoachPrefsResponse)
+def get_coach_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CoachPrefsResponse:
+    return CoachPrefsResponse(**coach_prefs_service.get_coach_settings(db, current_user))
+
+
+@router.put("/coach-settings", response_model=CoachPrefsResponse)
+def put_coach_settings(
+    payload: CoachPrefsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CoachPrefsResponse:
+    return CoachPrefsResponse(
+        **coach_prefs_service.put_coach_settings(
+            db,
+            current_user,
+            settings=payload.settings,
+            auto_session_enabled=payload.auto_session_enabled,
+            clear_auto_session=payload.clear_auto_session,
+        )
+    )
+
+
+@router.post("/coach-settings/restore", response_model=CoachPrefsResponse)
+def restore_coach_settings(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> CoachPrefsResponse:
+    return CoachPrefsResponse(**coach_prefs_service.restore_coach_defaults(db, current_user))
 
 
 @router.post("/reset", response_model=AccountResetResponse)

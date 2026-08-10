@@ -179,7 +179,7 @@ async def coach_signal(
         spread_bps=spread_bps,
         notional_usd=Decimal(str(notional_usd)),
     )
-    persist_coach_signal(db, verdict)
+    persist_coach_signal(db, verdict, user_id=current_user.id)
     # Chat alerts only from auto-tick (ENTRY once) — avoid /signal poll spam.
     return _to_response(verdict)
 
@@ -194,9 +194,9 @@ def coach_signal_history(
     db: Session = Depends(get_db),
 ) -> CoachSignalHistoryResponse:
     """Stored ENTRY / TREND / signal rows for paper hypothesis analysis."""
-    _ = current_user
     rows = list_coach_signals(
         db,
+        user_id=current_user.id,
         symbol=symbol,
         interval=interval,
         entry_only=entry_only,

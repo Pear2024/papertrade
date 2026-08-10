@@ -17,9 +17,9 @@ from app.services.risk_reward import calculate_net_risk_reward
 _SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
 
 
-def promoted_profile(owner_id: int, hypothesis_id: str | None = None) -> dict:
+def promoted_profile(db, owner_id: int, hypothesis_id: str | None = None) -> dict:
     """Return the requested promoted version, or the most recently promoted one."""
-    items = [item for item in list_hypotheses(owner_id) if item.get("paper_profile")]
+    items = [item for item in list_hypotheses(db, owner_id) if item.get("paper_profile")]
     if hypothesis_id:
         items = [item for item in items if item["id"] == hypothesis_id]
     if not items:
@@ -53,7 +53,7 @@ async def evaluate_promoted_lab(
     spread_bps: float,
     notional_usd: Decimal,
 ) -> tuple[CoachVerdict, dict]:
-    profile = promoted_profile(owner_id, hypothesis_id)
+    profile = promoted_profile(db, owner_id, hypothesis_id)
     rules = normalize_rules(profile["structured_rules"])
     requested_symbol, requested_interval = symbol.upper(), interval.lower()
     rule_symbol = rules["symbol"].replace("USDT", "")

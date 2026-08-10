@@ -10,8 +10,11 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
+from app.models import LabBacktest, LabHypothesis, User
 from app.research.experiment_engine.runner import (
     Costs,
     Strategy,
@@ -347,24 +350,146 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
     return normalize_rules(parsed)
 
 
-def _read_store() -> list[dict[str, Any]]:
-    if not STORE_PATH.exists():
-        return []
+def _parse_dt(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    text = str(value).replace("Z", "+00:00")
     try:
-        return json.loads(STORE_PATH.read_text(encoding="utf-8"))
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).isoformat()
+
+
+def _loads_json(raw: str | None, default: Any) -> Any:
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
     except json.JSONDecodeError:
-        return []
+        return default
 
 
-def _write_store(rows: list[dict[str, Any]]) -> None:
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    STORE_PATH.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+def _hypothesis_to_dict(row: LabHypothesis) -> dict[str, Any]:
+    backtests: list[dict[str, Any]] = []
+    for run in sorted(row.backtests, key=lambda item: item.ran_at or datetime.min.replace(tzinfo=timezone.utc)):
+        payload = _loads_json(run.result_json, {})
+        if isinstance(payload, dict):
+            payload.setdefault("id", run.public_id)
+            payload.setdefault("ran_at", _iso(run.ran_at))
+            backtests.append(payload)
+    return {
+        "id": row.public_id,
+        "owner_id": row.user_id,
+        "version": row.version,
+        "name": row.name,
+        "natural_language_prompt": row.natural_language_prompt,
+        "structured_rules": _loads_json(row.structured_rules_json, _fresh_defaults()),
+        "parser": row.parser,
+        "created_at": _iso(row.created_at) or "",
+        "updated_at": _iso(row.updated_at) or "",
+        "backtests": backtests,
+        "promoted_at": _iso(row.promoted_at),
+        "paper_profile": _loads_json(row.paper_profile_json, None),
+    }
 
 
-def create_hypothesis(owner_id: int, prompt: str, name: str | None, structured_rules: dict[str, Any] | None) -> dict[str, Any]:
+def _get_owned(db: Session, owner_id: int, hypothesis_id: str) -> LabHypothesis:
+    row = db.scalar(
+        select(LabHypothesis)
+        .options(selectinload(LabHypothesis.backtests))
+        .where(LabHypothesis.public_id == hypothesis_id, LabHypothesis.user_id == owner_id)
+    )
+    if row is None:
+        raise KeyError("Hypothesis not found")
+    return row
+
+
+def migrate_json_store(db: Session) -> int:
+    """Best-effort one-time import from the legacy shared JSON file."""
+    if not STORE_PATH.exists():
+        return 0
+    try:
+        rows = json.loads(STORE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Hypothesis Lab JSON migrate skipped: %s", exc)
+        return 0
+    if not isinstance(rows, list) or not rows:
+        return 0
+
+    imported = 0
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        public_id = str(raw.get("id") or "").strip()
+        owner_id = raw.get("owner_id")
+        if not public_id or not isinstance(owner_id, int):
+            continue
+        if db.scalar(select(LabHypothesis.id).where(LabHypothesis.public_id == public_id)):
+            continue
+        if not db.scalar(select(User.id).where(User.id == owner_id)):
+            logger.warning("Skipping Lab JSON row %s — owner %s missing", public_id, owner_id)
+            continue
+        now = datetime.now(timezone.utc)
+        hypothesis = LabHypothesis(
+            public_id=public_id,
+            user_id=owner_id,
+            version=str(raw.get("version") or "1.0.0")[:32],
+            name=str(raw.get("name") or "Structured hypothesis")[:120],
+            natural_language_prompt=str(raw.get("natural_language_prompt") or ""),
+            structured_rules_json=json.dumps(
+                normalize_rules(raw.get("structured_rules") if isinstance(raw.get("structured_rules"), dict) else None)
+            ),
+            parser=str(raw.get("parser") or "regex")[:32],
+            promoted_at=_parse_dt(raw.get("promoted_at")),
+            paper_profile_json=(
+                json.dumps(raw["paper_profile"])
+                if isinstance(raw.get("paper_profile"), dict)
+                else None
+            ),
+            created_at=_parse_dt(raw.get("created_at")) or now,
+            updated_at=_parse_dt(raw.get("updated_at")) or now,
+        )
+        db.add(hypothesis)
+        db.flush()
+        for run in raw.get("backtests") or []:
+            if not isinstance(run, dict):
+                continue
+            run_id = str(run.get("id") or f"run-{uuid.uuid4().hex[:10]}")
+            if db.scalar(select(LabBacktest.id).where(LabBacktest.public_id == run_id)):
+                continue
+            db.add(
+                LabBacktest(
+                    public_id=run_id,
+                    hypothesis_id=hypothesis.id,
+                    ran_at=_parse_dt(run.get("ran_at")) or now,
+                    result_json=json.dumps(run),
+                )
+            )
+        imported += 1
+    if imported:
+        db.commit()
+        logger.info("Migrated %s Hypothesis Lab rows from JSON store", imported)
+    return imported
+
+
+def create_hypothesis(
+    db: Session,
+    owner_id: int,
+    prompt: str,
+    name: str | None,
+    structured_rules: dict[str, Any] | None,
+) -> dict[str, Any]:
     if not prompt.strip() and not structured_rules:
         raise ValueError("Describe a hypothesis or provide structured rules.")
-    now = datetime.now(timezone.utc).isoformat()
     parser = "regex"
     if prompt.strip():
         try:
@@ -381,29 +506,36 @@ def create_hypothesis(owner_id: int, prompt: str, name: str | None, structured_r
             rules = parse_prompt(prompt, structured_rules)
     else:
         rules = normalize_rules(structured_rules)
-    row = {
-        "id": f"lab-{uuid.uuid4().hex[:10]}", "owner_id": owner_id, "version": "1.0.0",
-        "name": name or prompt.strip()[:80] or "Structured hypothesis",
-        "natural_language_prompt": prompt, "structured_rules": rules,
-        "parser": parser,
-        "created_at": now, "updated_at": now, "backtests": [], "promoted_at": None,
-    }
-    rows = _read_store()
-    rows.append(row)
-    _write_store(rows)
-    return row
+    now = datetime.now(timezone.utc)
+    row = LabHypothesis(
+        public_id=f"lab-{uuid.uuid4().hex[:10]}",
+        user_id=owner_id,
+        version="1.0.0",
+        name=(name or prompt.strip()[:80] or "Structured hypothesis")[:120],
+        natural_language_prompt=prompt,
+        structured_rules_json=json.dumps(rules),
+        parser=parser,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _hypothesis_to_dict(row)
 
 
-def list_hypotheses(owner_id: int) -> list[dict[str, Any]]:
-    return list(reversed([row for row in _read_store() if row.get("owner_id") == owner_id]))
+def list_hypotheses(db: Session, owner_id: int) -> list[dict[str, Any]]:
+    rows = db.scalars(
+        select(LabHypothesis)
+        .options(selectinload(LabHypothesis.backtests))
+        .where(LabHypothesis.user_id == owner_id)
+        .order_by(LabHypothesis.created_at.desc(), LabHypothesis.id.desc())
+    ).all()
+    return [_hypothesis_to_dict(row) for row in rows]
 
 
-def _get(owner_id: int, hypothesis_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    rows = _read_store()
-    for row in rows:
-        if row["id"] == hypothesis_id and row.get("owner_id") == owner_id:
-            return rows, row
-    raise KeyError("Hypothesis not found")
+def get_hypothesis(db: Session, owner_id: int, hypothesis_id: str) -> dict[str, Any]:
+    return _hypothesis_to_dict(_get_owned(db, owner_id, hypothesis_id))
 
 
 def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool], list[str]]:
@@ -448,30 +580,37 @@ def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool
     return signals, reasons
 
 
-def access_status(owner_id: int, plan: str) -> dict[str, Any]:
+def access_status(db: Session, owner_id: int, plan: str) -> dict[str, Any]:
     """Free users receive a small daily quota; Pro unlocks promotion."""
-    today = datetime.now(timezone.utc).date().isoformat()
-    used = sum(
-        1
-        for row in _read_store()
-        if row.get("owner_id") == owner_id
-        for run in row.get("backtests", [])
-        if str(run.get("ran_at", "")).startswith(today)
-    )
+    today = datetime.now(timezone.utc).date()
+    day_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+    used = db.scalar(
+        select(func.count())
+        .select_from(LabBacktest)
+        .join(LabHypothesis, LabBacktest.hypothesis_id == LabHypothesis.id)
+        .where(LabHypothesis.user_id == owner_id, LabBacktest.ran_at >= day_start)
+    ) or 0
     normalized_plan = "pro" if plan == "pro" else "free"
     return {
-        "plan": normalized_plan, "backtests_today": used,
+        "plan": normalized_plan, "backtests_today": int(used),
         "daily_backtest_limit": None if normalized_plan == "pro" else 3,
         "can_promote": normalized_plan == "pro",
         "upgrade_message": None if normalized_plan == "pro" else "Upgrade to Pro to unlock unlimited tests and paper-profile promotion.",
     }
 
 
-async def run_backtest(owner_id: int, plan: str, hypothesis_id: str, bars_count: int = 3000) -> dict[str, Any]:
-    status = access_status(owner_id, plan)
+async def run_backtest(
+    db: Session,
+    owner_id: int,
+    plan: str,
+    hypothesis_id: str,
+    bars_count: int = 3000,
+) -> dict[str, Any]:
+    status = access_status(db, owner_id, plan)
     if status["daily_backtest_limit"] is not None and status["backtests_today"] >= status["daily_backtest_limit"]:
         raise PermissionError("Free plan limit reached (3 backtests/day). Upgrade to Pro for unlimited backtests.")
-    rows, hypothesis = _get(owner_id, hypothesis_id)
+    hypothesis_row = _get_owned(db, owner_id, hypothesis_id)
+    hypothesis = _hypothesis_to_dict(hypothesis_row)
     rules = hypothesis["structured_rules"]
     bars_count = max(1000, min(bars_count, 10_000))
     bars, source15 = await fetch_bars(rules["interval"], bars_count, rules["symbol"])
@@ -491,8 +630,9 @@ async def run_backtest(owner_id: int, plan: str, hypothesis_id: str, bars_count:
         "paper": simulate(strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48, oos_end, len(bars), atr_multiple),
     }
     period_metrics = {period: metrics(trades) for period, trades in periods.items()}
+    ran_at = datetime.now(timezone.utc)
     result = {
-        "id": f"run-{uuid.uuid4().hex[:10]}", "ran_at": datetime.now(timezone.utc).isoformat(),
+        "id": f"run-{uuid.uuid4().hex[:10]}", "ran_at": ran_at.isoformat(),
         "bars": len(bars), "sources": {"entry": source15, "htf": source_htf},
         "costs": {"fee_rate_per_fill": .008, "spread_bps": 2, "slippage_bps_side": 3},
         "methodology": "Long-only, closed-candle signals, next-open entry, 0.5% risk, 48-bar timeout, stop first if stop/target collide. 0.80% fee per fill plus 2bps spread and 3bps slippage per side. Results are not profitability claims.",
@@ -503,20 +643,34 @@ async def run_backtest(owner_id: int, plan: str, hypothesis_id: str, bars_count:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "report.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     (run_dir / "trades.json").write_text(json.dumps([trade.row() for values in periods.values() for trade in values], indent=2), encoding="utf-8")
-    hypothesis["backtests"].append(result)
-    hypothesis["updated_at"] = result["ran_at"]
-    _write_store(rows)
+    db.add(
+        LabBacktest(
+            public_id=result["id"],
+            hypothesis_id=hypothesis_row.id,
+            ran_at=ran_at,
+            result_json=json.dumps(result),
+        )
+    )
+    hypothesis_row.updated_at = ran_at
+    db.commit()
     return result
 
 
-def promote(owner_id: int, plan: str, hypothesis_id: str) -> dict[str, Any]:
+def promote(db: Session, owner_id: int, plan: str, hypothesis_id: str) -> dict[str, Any]:
     if plan != "pro":
         raise PermissionError("Paper-profile promotion is a Pro feature. Upgrade to continue.")
-    rows, hypothesis = _get(owner_id, hypothesis_id)
-    hypothesis["promoted_at"] = datetime.now(timezone.utc).isoformat()
-    hypothesis["paper_profile"] = {
-        "source": "lab", "hypothesis_id": hypothesis["id"], "version": hypothesis["version"],
-        "rules": hypothesis["structured_rules"], "paper_only": True,
-    }
-    _write_store(rows)
-    return hypothesis
+    hypothesis_row = _get_owned(db, owner_id, hypothesis_id)
+    rules = _loads_json(hypothesis_row.structured_rules_json, _fresh_defaults())
+    now = datetime.now(timezone.utc)
+    hypothesis_row.promoted_at = now
+    hypothesis_row.paper_profile_json = json.dumps({
+        "source": "lab",
+        "hypothesis_id": hypothesis_row.public_id,
+        "version": hypothesis_row.version,
+        "rules": rules,
+        "paper_only": True,
+    })
+    hypothesis_row.updated_at = now
+    db.commit()
+    db.refresh(hypothesis_row)
+    return _hypothesis_to_dict(hypothesis_row)

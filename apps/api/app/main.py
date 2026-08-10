@@ -27,6 +27,17 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001 — startup must still serve health
         print(f"WARNING: could not ensure market assets: {exc}")
 
+    try:
+        from app.core.database import SessionLocal
+        from app.services.hypothesis_lab import migrate_json_store
+
+        with SessionLocal() as db:
+            migrated = migrate_json_store(db)
+        if migrated:
+            print(f"Hypothesis Lab JSON migrate: imported {migrated} hypotheses")
+    except Exception as exc:  # noqa: BLE001 — startup must still serve health
+        print(f"WARNING: Hypothesis Lab JSON migrate skipped: {exc}")
+
     if settings.kraken_feed_enabled:
         from app.services.kraken_market import start_kraken_feed, stop_kraken_feed
 
