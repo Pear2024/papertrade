@@ -60,7 +60,7 @@ export default function PortfolioPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Portfolio</h1>
         <p className="text-sm text-muted-foreground">
-          Holdings on your $10 paper account.
+          Holdings on your $20,000 paper account.
         </p>
       </div>
 

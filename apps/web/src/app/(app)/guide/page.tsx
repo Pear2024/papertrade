@@ -33,10 +33,10 @@ const SECTIONS: GuideSection[] = [
     title: "Market",
     image: "/guide/market.svg",
     purpose:
-      "Charts plus Lab paper AUTO for any listed symbol. Pick a coin that matches your promoted Hypothesis Lab profile.",
+      "Charts plus Lab paper AUTO for any listed symbol. EMA lines follow chart_emas from your selected promoted Lab profile.",
     actions: [
-      "Select a symbol and read the chart (default 15m).",
-      "Choose a promoted Lab profile in the AUTO card, then turn AUTO on.",
+      "Select a symbol that matches your Lab profile (catalog includes BTC, ETH, SOL, and many others).",
+      "Choose a promoted Lab profile in the AUTO card, then turn AUTO on — leave the tab open for ticks.",
       "Use Manual ticket for a classic order ticket on that symbol.",
     ],
     connects:
@@ -95,8 +95,8 @@ const SECTIONS: GuideSection[] = [
       "Practice stats plus the same Lab paper AUTO desk as Market. Entries come from your Lab prompts.",
     actions: [
       "Track practice progress toward 200–500 paper trades.",
-      "Select a promoted Lab profile and keep the page open so AUTO can tick.",
-      "Tune stake, interval, SL/TP defaults in Settings.",
+      "Select a promoted Lab profile and keep the page open so AUTO can tick (browser interval — not server 24/7).",
+      "Tune stake, interval, SL/TP defaults in Settings (saved to your account).",
     ],
     connects:
       "Same AUTO engine as Market. Profiles are created in Lab; outcomes show in Portfolio, History, and Analytics.",
@@ -106,14 +106,14 @@ const SECTIONS: GuideSection[] = [
     title: "Lab",
     image: "/guide/lab.svg",
     purpose:
-      "Hypothesis Lab: describe rules in plain English, generate an immutable version, backtest with fees, then save a paper profile.",
+      "Hypothesis Lab: describe rules in plain English, generate an immutable version, backtest with fees, then save a paper profile (Pro). Hypotheses are private to your account.",
     actions: [
-      "Write a prompt (symbol, interval, entries, filters, stop/target).",
-      "Generate a testable version, then Backtest (includes 0.80% fees per fill).",
-      "Save paper profile (promote) when you want AUTO to use it.",
+      "Write a prompt (symbol, interval, entries, filters, stop/target). EMAs in the prompt appear on the Market chart when the profile is selected.",
+      "Generate a testable version, then Backtest (≈0.80% fee per fill). REJECT is common and expected.",
+      "Save paper profile (promote) on Pro when you want AUTO to use it. Free plans are limited to a few backtests per day.",
     ],
     connects:
-      "Only promoted Lab profiles drive Market/Coach paper AUTO.",
+      "Only promoted Lab profiles drive Market/Coach paper AUTO. Other users cannot see your Lab work.",
   },
   {
     id: "analytics",
@@ -130,9 +130,10 @@ const SECTIONS: GuideSection[] = [
     id: "settings",
     title: "Settings",
     image: "/guide/settings.svg",
-    purpose: "Account risk limits, coach AUTO defaults (interval, stake, leverage, SL/TP), and paper reset tools.",
+    purpose:
+      "Account risk limits, coach AUTO defaults (interval, stake, leverage, SL/TP), paper reset, and a link to this guide. New accounts start at $20,000 simulated cash.",
     actions: [
-      "Set candle interval, AUTO tick seconds, stake, and leverage for Lab AUTO.",
+      "Set candle interval, AUTO tick seconds, stake, and leverage for Lab AUTO (stored per account on the server).",
       "Configure max risk per trade, daily loss, and trades/day.",
       "Reset the paper account when you want a clean practice slate.",
     ],
@@ -153,6 +154,7 @@ export default function GuidePage() {
           <h1 className="text-2xl font-semibold tracking-tight">How Paper Crypto Coach works</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Concise walkthrough of every tab. Simulated money only — nothing here trades real funds.
+            New paper accounts start with $20,000.
           </p>
         </div>
         <Button asChild variant="outline">
@@ -165,8 +167,8 @@ export default function GuidePage() {
       <Alert>
         <AlertTitle>Lab-first paper AUTO</AlertTitle>
         <AlertDescription>
-          Paper signals and AUTO use Hypothesis Lab profiles only. Prompt → backtest → save paper
-          profile → turn AUTO on in Market or Coach.
+          Paper signals and AUTO use Hypothesis Lab profiles only. Prompt → backtest → Save paper
+          profile (Pro) → turn AUTO on in Market or Coach and leave the tab open.
         </AlertDescription>
       </Alert>
 
@@ -174,7 +176,8 @@ export default function GuidePage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">Lab → AUTO loop</CardTitle>
           <CardDescription>
-            One path for automated paper entries. Keep Market or Coach open while AUTO ticks.
+            One path for automated paper entries. Keep Market or Coach open while AUTO ticks in the
+            browser.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -188,13 +191,13 @@ export default function GuidePage() {
               <Link href="/lab" className="font-medium text-foreground underline-offset-4 hover:underline">
                 Lab
               </Link>
-              : describe rules, generate a version, backtest, save paper profile.
+              : describe rules, generate a version, backtest, Save paper profile (Pro).
             </li>
             <li>
               <Link href="/settings" className="font-medium text-foreground underline-offset-4 hover:underline">
                 Settings
               </Link>
-              : set interval, stake, leverage, SL/TP for AUTO risk.
+              : set interval, stake, leverage, SL/TP for AUTO risk (saved to your account).
             </li>
             <li>
               <Link href="/market" className="font-medium text-foreground underline-offset-4 hover:underline">
@@ -274,9 +277,24 @@ export default function GuidePage() {
           <CardTitle className="text-base">Tips</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>AUTO evaluates closed candles and fills eligible longs at the next candle open.</p>
-          <p>Leave Market or Coach open while AUTO is on — ticks pause if you close the tab.</p>
-          <p>English-only UI. Paper trading only — never real funds.</p>
+          <p>Paper trading only — never real funds. Sign in with email/password or Google (when enabled).</p>
+          <p>
+            Lab hypotheses and Coach AUTO prefs are per account on the server — not shared with other
+            users.
+          </p>
+          <p>
+            Free: limited backtests/day. Pro: unlimited backtests and Save paper profile (required for
+            AUTO).
+          </p>
+          <p>
+            AUTO evaluates closed candles and fills eligible longs at the next candle open. Leave
+            Market or Coach open — ticks pause if you close the tab (not a 24/7 server job).
+          </p>
+          <p>
+            Backtests include ≈0.80% fee per fill; REJECT is a normal research outcome. EMAs from your
+            Lab prompt draw on the Market chart when that profile is selected.
+          </p>
+          <p>English-only UI.</p>
         </CardContent>
       </Card>
     </div>

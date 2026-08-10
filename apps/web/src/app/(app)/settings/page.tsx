@@ -252,7 +252,8 @@ export default function SettingsPage() {
             <Link href="/lab" className="underline underline-offset-4">
               Hypothesis Lab
             </Link>{" "}
-            prompts (promoted profiles). Saved in this browser.
+            prompts (promoted profiles). Saved per account on the server
+            (MySQL); this browser keeps a local cache for faster load.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -33,7 +33,7 @@
   <text x="24" y="120" font-size="22" font-weight="700" font-family="Segoe UI,Arial,sans-serif" fill="#0f172a">Lab</text>
   <text x="24" y="148" font-size="13" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Turn a rule idea into an immutable paper-research version.</text>
      <rect x="24" y="168" width="912" height="54" rx="10" fill="#eff6ff" stroke="#bfdbfe"/>
-     <text x="40" y="200" font-size="13" fill="#1e40af" font-family="Segoe UI,Arial,sans-serif">Flow: Prompt → Generate version → Backtest → Save paper profile → AUTO on Market/Coach</text>
+     <text x="40" y="200" font-size="13" fill="#1e40af" font-family="Segoe UI,Arial,sans-serif">Flow: Prompt → Generate → Backtest (0.80% fees) → Save paper profile (Pro) → AUTO</text>
      <rect x="24" y="240" width="440" height="220" rx="12" fill="#fff" stroke="#dbe3ee"/>
      <text x="44" y="270" font-size="14" font-weight="600" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">Describe a hypothesis</text>
      <rect x="44" y="288" width="400" height="100" rx="8" fill="#f8fafc" stroke="#d0d7e2"/>
@@ -43,9 +43,9 @@
      <rect x="488" y="240" width="448" height="220" rx="12" fill="#fff" stroke="#dbe3ee"/>
      <text x="508" y="270" font-size="14" font-weight="600" fill="#0f172a" font-family="Segoe UI,Arial,sans-serif">EMA Cross v2</text>
      <text x="780" y="270" font-size="11" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Parsed by rules</text>
-     <text x="508" y="304" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Verdict: PASS · 142 trades · fees 0.80%</text>
+     <text x="508" y="304" font-size="12" fill="#64748b" font-family="Segoe UI,Arial,sans-serif">Verdict: REJECT common · fees 0.80%/fill</text>
      <rect x="508" y="328" width="120" height="34" rx="8" fill="#0b7ea8"/><text x="568" y="350" text-anchor="middle" font-size="12" fill="#fff" font-family="Segoe UI,Arial,sans-serif">Backtest</text>
-     <rect x="640" y="328" width="160" height="34" rx="8" fill="#fff" stroke="#0b7ea8"/><text x="720" y="350" text-anchor="middle" font-size="12" fill="#0b7ea8" font-family="Segoe UI,Arial,sans-serif">Save paper profile</text>
-     <text x="508" y="400" font-size="12" fill="#059669" font-family="Segoe UI,Arial,sans-serif">Ready for paper AUTO on Market / Coach</text>
+     <rect x="640" y="328" width="160" height="34" rx="8" fill="#fff" stroke="#0b7ea8"/><text x="720" y="350" text-anchor="middle" font-size="12" fill="#0b7ea8" font-family="Segoe UI,Arial,sans-serif">Save (Pro)</text>
+     <text x="508" y="400" font-size="12" fill="#059669" font-family="Segoe UI,Arial,sans-serif">Promoted profiles · private to your account</text>
   <text x="24" y="525" font-size="11" font-family="Segoe UI,Arial,sans-serif" fill="#94a3b8">UI illustration · Paper Crypto Coach User Guide</text>
 </svg>
