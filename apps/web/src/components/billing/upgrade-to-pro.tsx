@@ -35,7 +35,7 @@ export function UpgradeToProButton({
   className,
   label = "Upgrade to Pro",
 }: {
-  variant?: "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
+  variant?: "default" | "outline" | "secondary" | "ghost" | "destructive";
   size?: "default" | "sm" | "lg" | "icon";
   className?: string;
   label?: string;
