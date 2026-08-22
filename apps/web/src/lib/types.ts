@@ -417,6 +417,36 @@ export interface CoachAutoTick {
   hypothesis_version?: string | null;
 }
 
+export interface HypothesisBacktestTradeRow {
+  signal_time: string;
+  entry_time: string;
+  exit_time: string;
+  entry_raw: number;
+  entry_fill: number;
+  stop_raw: number;
+  target_raw: number;
+  exit_raw: number;
+  exit_reason: string;
+  net_pnl: number;
+  r_multiple: number;
+  risk_reward?: number | null;
+  win?: boolean | null;
+  confidence_score?: number | null;
+  confidence_label?: string | null;
+  mfe_r?: number | null;
+  mae_r?: number | null;
+  trigger_reason?: string;
+  conditions?: {
+    conditions?: Array<{
+      id: string;
+      passed: boolean;
+      points: number;
+      max_points: number;
+      detail: string;
+    }>;
+  } | null;
+}
+
 export interface HypothesisBacktest {
   id: string;
   ran_at: string;
@@ -424,9 +454,11 @@ export interface HypothesisBacktest {
   verdict: string;
   trade_count: number;
   methodology: string;
+  buy_confidence?: Record<string, unknown> | null;
   periods: Record<string, {
     trades: number; win_rate: number; net_pnl: number; expectancy: number;
     profit_factor: number | null; max_drawdown: number;
+    trade_rows?: HypothesisBacktestTradeRow[];
   }>;
 }
 

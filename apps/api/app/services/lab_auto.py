@@ -81,7 +81,7 @@ async def evaluate_promoted_lab(
 
     bars = [Candle(c.time, float(c.open), float(c.high), float(c.low), float(c.close), float(c.volume or 0)) for c in candles[: signal_i + 1]]
     htf = [Candle(c.time, float(c.open), float(c.high), float(c.low), float(c.close), float(c.volume or 0)) for c in htf_raw]
-    signals, reasons = lab_signals(rules, bars, htf)
+    signals, reasons, _details = lab_signals(rules, bars, htf)
     signal_bar, fill_bar = bars[-1], candles[fill_i]
     entry = to_decimal(fill_bar.open)
     atr14 = atr(bars)

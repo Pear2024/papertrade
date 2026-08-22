@@ -27,6 +27,7 @@ from app.research.experiment_engine.runner import (
     simulate,
     verdict,
 )
+from app.services.buy_confidence import normalize_buy_confidence, score_closed_bar
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_ROOT = ROOT / "research_outputs" / "hypothesis_lab"
@@ -62,6 +63,26 @@ DEFAULT_RULES: dict[str, Any] = {
     # Chart overlay periods (visual only). Empty → Market chart falls back to 9+21.
     "chart_emas": [],
     "assistant": dict(ASSISTANT_DEFAULT),
+    # Opt-in weighted BUY Confidence Score (0–10). When enabled, replaces pure AND filters.
+    "buy_confidence": {
+        "enabled": False,
+        "weights": {
+            "ema200_uptrend": 2,
+            "price_above_ema200": 1,
+            "ema9_above_ema21": 1,
+            "higher_low": 2,
+            "break_resistance": 1,
+            "volume_surge": 2,
+            "bullish_candle": 1,
+        },
+        "thresholds": {"no_buy_max": 4, "wait_max": 7, "strong_min": 8},
+        "execute_min_score": 8,
+        "require_closed_bar": True,
+        "volume_multiple": 1.5,
+        "ema200_slope_bars": 5,
+        "swing_lookback": 3,
+        "bullish_close_body_pct": 0.55,
+    },
 }
 # Ready-made Lab prompt (English). Practice goals only — not income promises.
 TRADE_TO_LIVE_PROMPT = (
@@ -114,6 +135,12 @@ chart_emas. If ema_trend is true include 9 and 21; if htf_ema200 is true include
 If the prompt mentions Trade-to-Live, single setup, quality over quantity, WAIT/NO TRADE,
 or min RR 1:2, set assistant.philosophy to "trade_to_live", prefer_wait true, min_rr 2.0,
 and r_target to at least 2.0. Never invent trades when filters are incomplete.
+If the prompt mentions BUY Confidence Score / confidence score / strong buy setup /
+multiple confirmations (not EMA cross alone), set buy_confidence.enabled true with
+default weights (ema200_uptrend:2, price_above_ema200:1, ema9_above_ema21:1,
+higher_low:2, break_resistance:1, volume_surge:2, bullish_candle:1),
+thresholds no_buy_max:4 wait_max:7 strong_min:8, execute_min_score:8,
+require_closed_bar true, structure stop, higher_low and break_swing_high true.
 Leave unspecified values at the defaults shown above."""
 
 # Rank for comparing primary vs higher timeframe (larger = slower).
@@ -276,6 +303,11 @@ def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | Non
                 out_assistant["steps"] = [str(step) for step in steps[:8]]
             normalized["assistant"] = out_assistant
 
+        if "buy_confidence" in source:
+            normalized["buy_confidence"] = normalize_buy_confidence(
+                source.get("buy_confidence") if isinstance(source.get("buy_confidence"), dict) else None
+            )
+
     low, high = normalized["filters"]["rsi_min"], normalized["filters"]["rsi_max"]
     if low is not None and high is not None and low > high:
         normalized["filters"]["rsi_min"], normalized["filters"]["rsi_max"] = high, low
@@ -284,6 +316,17 @@ def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | Non
         normalized,
         explicit=list(normalized.get("chart_emas") or []),
     )
+    conf = normalized.get("buy_confidence") or {}
+    if conf.get("enabled"):
+        # Score path needs EMA9/21/200 on the chart for visual + slope checks.
+        periods = list(normalized.get("chart_emas") or [])
+        for period in (9, 21, 200):
+            if period not in periods:
+                periods.append(period)
+        normalized["chart_emas"] = normalize_ema_periods(periods)
+        # Prefer structure stop when HL is part of the score model.
+        if normalized["stop"].get("type") == "atr":
+            normalized["stop"]["type"] = "structure"
     # Trade-to-Live / assistant gate: never allow planned R below min_rr (default 2.0).
     assistant = normalized.get("assistant") or ASSISTANT_DEFAULT
     min_rr = float(assistant.get("min_rr") or 2.0)
@@ -291,6 +334,10 @@ def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | Non
         # Snap up to the smallest supported target meeting min_rr.
         eligible = sorted(r for r in SUPPORTED_R_TARGETS if r >= min_rr)
         normalized["r_target"] = float(eligible[0] if eligible else 2.0)
+    # Always keep a normalized buy_confidence block present.
+    normalized["buy_confidence"] = normalize_buy_confidence(
+        normalized.get("buy_confidence") if isinstance(normalized.get("buy_confidence"), dict) else None
+    )
     return normalized
 
 
@@ -648,6 +695,22 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
             filters["volume_multiple"] = 1.5
         if float(parsed.get("r_target") or 0) < 2.0:
             parsed["r_target"] = 2.0
+    if _is_buy_confidence_prompt(text):
+        conf = normalize_buy_confidence(parsed.get("buy_confidence"))
+        conf["enabled"] = True
+        parsed["buy_confidence"] = conf
+        filters["higher_low"] = True
+        filters["break_swing_high"] = True
+        filters["ema_trend"] = True
+        parsed["stop"] = {
+            "type": "structure",
+            "atr_multiple": float((parsed.get("stop") or {}).get("atr_multiple") or 1.0),
+            "buffer_pct": float((parsed.get("stop") or {}).get("buffer_pct") or 0.1),
+        }
+        assistant = dict(parsed.get("assistant") or ASSISTANT_DEFAULT)
+        assistant["prefer_wait"] = True
+        assistant["require_ltf_confirmation"] = True
+        parsed["assistant"] = assistant
     # Chart overlays from explicit periods in the prompt (plus filter mapping in normalize).
     parsed["chart_emas"] = resolve_chart_emas(
         parsed,
@@ -655,6 +718,17 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
         explicit=list(parsed.get("chart_emas") or []),
     )
     return normalize_rules(parsed)
+
+
+def _is_buy_confidence_prompt(text: str) -> bool:
+    return bool(
+        re.search(
+            r"buy\s*confidence|confidence\s*score|strong\s*buy\s*setup|"
+            r"คะแนน\s*buy|คะแนนความมั่นใจ|มัลติ\s*confirm|multiple\s*confirm",
+            text,
+            re.I,
+        )
+    )
 
 
 def _mentions_higher_low(text: str) -> bool:
@@ -1023,9 +1097,12 @@ def structure_stop_price(
     return level if level > 0 else None
 
 
-def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool], list[str]]:
+def lab_signals(
+    rules: dict[str, Any], bars: list, htf: list
+) -> tuple[list[bool], list[str], list[dict[str, Any] | None]]:
     closes = [bar.close for bar in bars]
     e9, e21, rsi14, adx14 = ema(closes, 9), ema(closes, 21), rsi(closes), adx(bars)
+    e200 = ema(closes, 200)
     htf_closes, htf_ema200 = [bar.close for bar in htf], ema([bar.close for bar in htf], 200)
     seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400, "1d": 86400}
     base_seconds, htf_seconds = seconds[rules["interval"]], seconds[rules["htf"]]
@@ -1037,12 +1114,50 @@ def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool
             pointer += 1
         htf_index.append(pointer if pointer >= 0 else None)
     filters = rules["filters"]
-    lookback = int(filters.get("swing_lookback") or DEFAULT_SWING_LOOKBACK)
+    conf = normalize_buy_confidence(
+        rules.get("buy_confidence") if isinstance(rules.get("buy_confidence"), dict) else None
+    )
+    lookback = int(
+        conf.get("swing_lookback")
+        or filters.get("swing_lookback")
+        or DEFAULT_SWING_LOOKBACK
+    )
     structure_on = bool(filters.get("higher_low") or filters.get("break_swing_high"))
-    signals, reasons = [False] * len(bars), [""] * len(bars)
+    signals: list[bool] = [False] * len(bars)
+    reasons: list[str] = [""] * len(bars)
+    details: list[dict[str, Any] | None] = [None] * len(bars)
     warmup = max(200, int(filters.get("breakout_bars") or 0), lookback * 2 + 5, 20)
+
+    def _structure(bars_arg: list, i: int, lb: int) -> dict[str, Any] | None:
+        return structure_setup_at(bars_arg, i, lookback=lb)
+
     for i in range(warmup, len(bars)):
         bar = bars[i]
+        if conf.get("enabled"):
+            scored = score_closed_bar(
+                bars=bars,
+                i=i,
+                ema9=e9,
+                ema21=e21,
+                ema200=e200,
+                conf=conf,
+                structure_setup=_structure,
+            )
+            details[i] = scored
+            # Rising-edge STRONG BUY only — never fire mid-bar; bar i is already closed.
+            prev_exec = bool(details[i - 1] and details[i - 1].get("execute")) if i > 0 else False
+            signals[i] = bool(scored.get("execute")) and not prev_exec
+            cond_bits = [
+                f"{c['id']}={'Y' if c['passed'] else 'N'}(+{c['points']:g}/{c['max_points']:g})"
+                for c in scored.get("conditions") or []
+            ]
+            reasons[i] = (
+                f"{scored['label']} score={scored['score']:g}/10 "
+                f"(exec>={conf['execute_min_score']}; closed-bar only); "
+                + "; ".join(cond_bits)
+            )
+            continue
+
         checks: list[tuple[bool, str]] = []
         if filters.get("ema_trend"):
             checks.append((bool(e9[i] and e21[i] and e9[i] > e21[i] and bar.close > e9[i]), "EMA9>EMA21; close>EMA9"))
@@ -1075,7 +1190,6 @@ def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool
                         )
                     )
                 else:
-                    # No HL pair yet — still require a broken prior swing high when possible.
                     highs = _confirmed_swing_highs(bars, i, lookback)
                     if highs:
                         level = highs[-1][1]
@@ -1094,7 +1208,7 @@ def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool
             )
         else:
             reasons[i] = "WAIT — no Lab filters configured."
-    return signals, reasons
+    return signals, reasons, details
 
 
 def access_status(db: Session, owner_id: int, plan: str) -> dict[str, Any]:
@@ -1134,17 +1248,23 @@ async def chart_entry_markers(
     bars, _ = await fetch_bars(rules["interval"], bars_count, rules["symbol"])
     htf_count = max(250, len(bars) // 4 + 200)
     htf, _ = await fetch_bars(rules["htf"], htf_count, rules["symbol"])
-    signals, _ = lab_signals(rules, bars, htf)
+    signals, _, details = lab_signals(rules, bars, htf)
     markers: list[dict[str, Any]] = []
     for i in range(1, len(signals)):
         if signals[i] and not signals[i - 1]:
+            detail = details[i] if details else None
+            score = (detail or {}).get("score")
+            label = (detail or {}).get("label") or "ENTRY BUY"
+            text = f"ENTRY BUY" if score is None else f"ENTRY {score:g}/10"
             markers.append(
                 {
                     "time": int(bars[i].time),
-                    "text": "ENTRY BUY",
+                    "text": text,
                     "position": "belowBar",
                     "color": "#00e676",
                     "shape": "arrowUp",
+                    "score": score,
+                    "label": label,
                 }
             )
     return {
@@ -1179,7 +1299,7 @@ async def run_backtest(
     bars, source15 = await fetch_bars(rules["interval"], bars_count, rules["symbol"])
     htf_count = max(500, len(bars) // 4 + 250)
     htf, source_htf = await fetch_bars(rules["htf"], htf_count, rules["symbol"])
-    signals, reasons = lab_signals(rules, bars, htf)
+    signals, reasons, details = lab_signals(rules, bars, htf)
     dev_end = int(len(bars) * .55)
     oos_end = dev_end + int(len(bars) * .225)
     strategy = Strategy(hypothesis["id"], hypothesis["version"], hypothesis["name"], hypothesis["natural_language_prompt"])
@@ -1187,32 +1307,55 @@ async def run_backtest(
     atr_multiple = float(rules["stop"].get("atr_multiple", 1.0))
     stop_type = str(rules["stop"].get("type") or "atr")
     stop_prices: list[float | None] | None = None
-    if stop_type in {"structure", "higher_low"}:
-        stop_prices = [structure_stop_price(rules, bars, i) if signals[i] else None for i in range(len(bars))]
+    conf_on = bool((rules.get("buy_confidence") or {}).get("enabled"))
+    if stop_type in {"structure", "higher_low"} or conf_on:
+        stop_prices = [
+            structure_stop_price(rules, bars, i) if signals[i] else None for i in range(len(bars))
+        ]
     # `bar_low` remains a transparent approximation in this MVP; its simulation
     # uses one ATR until a dedicated bar-low bracket model is added.
     # Structure / higher_low stops use absolute HL lows via stop_prices.
     periods = {
         "development": simulate(
             strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48,
-            200, dev_end, atr_multiple, stop_prices,
+            200, dev_end, atr_multiple, stop_prices, details,
         ),
         "oos": simulate(
             strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48,
-            dev_end, oos_end, atr_multiple, stop_prices,
+            dev_end, oos_end, atr_multiple, stop_prices, details,
         ),
         "paper": simulate(
             strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48,
-            oos_end, len(bars), atr_multiple, stop_prices,
+            oos_end, len(bars), atr_multiple, stop_prices, details,
         ),
     }
-    period_metrics = {period: metrics(trades) for period, trades in periods.items()}
+    period_metrics = {
+        period: {
+            **metrics(trades),
+            "trade_rows": [trade.row() for trade in trades[:80]],
+        }
+        for period, trades in periods.items()
+    }
     ran_at = datetime.now(timezone.utc)
+    conf = rules.get("buy_confidence") or {}
+    methodology = (
+        "Long-only, closed-candle signals, next-open entry, 0.5% risk, 48-bar timeout, "
+        "stop first if stop/target collide. 0.80% fee per fill plus 2bps spread and 3bps "
+        "slippage per side. Results are not profitability claims."
+    )
+    if conf.get("enabled"):
+        methodology += (
+            " BUY Confidence Score (0–10) is causal: confirmed HL/resistance pivots only "
+            f"(lookback={conf.get('swing_lookback', 3)}); execute only when score ≥ "
+            f"{conf.get('execute_min_score', 8)} on a closed bar (0–4 NO BUY, 5–7 WAIT, "
+            "8–10 STRONG BUY). EMA cross alone never opens a trade."
+        )
     result = {
         "id": f"run-{uuid.uuid4().hex[:10]}", "ran_at": ran_at.isoformat(),
         "bars": len(bars), "sources": {"entry": source15, "htf": source_htf},
         "costs": {"fee_rate_per_fill": .008, "spread_bps": 2, "slippage_bps_side": 3},
-        "methodology": "Long-only, closed-candle signals, next-open entry, 0.5% risk, 48-bar timeout, stop first if stop/target collide. 0.80% fee per fill plus 2bps spread and 3bps slippage per side. Results are not profitability claims.",
+        "methodology": methodology,
+        "buy_confidence": conf if conf.get("enabled") else None,
         "periods": period_metrics, "verdict": verdict(period_metrics["development"], period_metrics["oos"]),
         "trade_count": sum(len(value) for value in periods.values()),
     }

@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { chartEmasFromRules } from "@/lib/lab-chart-emas";
 import { formatLabProfileLabel, labProfileNumbers } from "@/lib/lab-profile-label";
-import { HypothesisBacktest, HypothesisLabAccess, HypothesisLabItem } from "@/lib/types";
+import { HypothesisBacktest, HypothesisBacktestTradeRow, HypothesisLabAccess, HypothesisLabItem } from "@/lib/types";
 
 const EXAMPLE =
   "BTCUSDT 15m: buy when EMA9 is above EMA21, 1h close above EMA200, volume > 1.5x average, RSI 50-70, stop 1 ATR, target 2R";
@@ -32,7 +32,23 @@ const TRADE_TO_LIVE_TEMPLATE =
   "If trend is unclear, no closed-bar confirmation, or RR below 1:2 → WAIT / NO TRADE. " +
   "Quality over quantity (~1–3 high-quality paper setups per week).";
 
+/** Multi-confirmation BUY Confidence Score (0–10) — not EMA cross alone. */
+const BUY_CONFIDENCE_TEMPLATE =
+  "BTCUSDT 15m BUY Confidence Score setup (NOT EMA cross alone). " +
+  "Score 0–10 on the closed candle only (no look-ahead): " +
+  "EMA200 trending up +2, price above EMA200 +1, EMA9 above EMA21 +1, " +
+  "confirmed Higher Low +2, break recent resistance/swing high +1, " +
+  "volume significantly above recent average +2, bullish candle confirmation +1. " +
+  "0–4 NO BUY, 5–7 WAIT/WATCH, 8–10 STRONG BUY SETUP. " +
+  "Execute paper entry only when score ≥ 8 after the candle closes; fill next open. " +
+  "Stop below confirmed higher low; target 2.5R. All thresholds configurable.";
+
 function assistantBadge(rules: Record<string, unknown>): string | null {
+  const confidence = rules.buy_confidence as Record<string, unknown> | undefined;
+  if (confidence?.enabled) {
+    const min = typeof confidence.execute_min_score === "number" ? confidence.execute_min_score : 8;
+    return `BUY Confidence Score · closed-bar only · execute ≥ ${min}/10 · not EMA-cross alone`;
+  }
   const assistant = rules.assistant as Record<string, unknown> | undefined;
   if (!assistant || assistant.philosophy !== "trade_to_live") return null;
   const minRr = typeof assistant.min_rr === "number" ? assistant.min_rr : 2;
@@ -69,6 +85,70 @@ function ChartEmaBadge({ rules }: { rules: Record<string, unknown> }) {
   );
 }
 
+function TradeRowsTable({ rows }: { rows: HypothesisBacktestTradeRow[] }) {
+  if (!rows.length) return null;
+  return (
+    <div className="mt-3 overflow-x-auto rounded border">
+      <table className="w-full min-w-[720px] text-left text-xs">
+        <thead className="bg-muted/40">
+          <tr>
+            <th className="px-2 py-1.5 font-medium">Score</th>
+            <th className="px-2 py-1.5 font-medium">Label</th>
+            <th className="px-2 py-1.5 font-medium">Entry</th>
+            <th className="px-2 py-1.5 font-medium">SL</th>
+            <th className="px-2 py-1.5 font-medium">TP</th>
+            <th className="px-2 py-1.5 font-medium">R:R</th>
+            <th className="px-2 py-1.5 font-medium">W/L</th>
+            <th className="px-2 py-1.5 font-medium">MFE</th>
+            <th className="px-2 py-1.5 font-medium">MAE</th>
+            <th className="px-2 py-1.5 font-medium">Net</th>
+            <th className="px-2 py-1.5 font-medium">Conditions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={`${row.entry_time}-${index}`} className="border-t align-top">
+              <td className="px-2 py-1.5 tabular-nums">{row.confidence_score?.toFixed?.(1) ?? "—"}</td>
+              <td className="px-2 py-1.5">{row.confidence_label ?? "—"}</td>
+              <td className="px-2 py-1.5 tabular-nums">{row.entry_fill.toFixed(2)}</td>
+              <td className="px-2 py-1.5 tabular-nums">{row.stop_raw.toFixed(2)}</td>
+              <td className="px-2 py-1.5 tabular-nums">{row.target_raw.toFixed(2)}</td>
+              <td className="px-2 py-1.5 tabular-nums">
+                1:{row.risk_reward ?? row.r_multiple?.toFixed?.(2) ?? "—"}
+              </td>
+              <td className="px-2 py-1.5">{row.win == null ? "—" : row.win ? "WIN" : "LOSS"}</td>
+              <td className="px-2 py-1.5 tabular-nums">
+                {row.mfe_r == null ? "—" : `${row.mfe_r.toFixed(2)}R`}
+              </td>
+              <td className="px-2 py-1.5 tabular-nums">
+                {row.mae_r == null ? "—" : `${row.mae_r.toFixed(2)}R`}
+              </td>
+              <td className="px-2 py-1.5 tabular-nums">${row.net_pnl.toFixed(2)}</td>
+              <td className="px-2 py-1.5">
+                <div className="flex max-w-xs flex-wrap gap-1">
+                  {(row.conditions?.conditions ?? []).map((c) => (
+                    <span
+                      key={c.id}
+                      className={
+                        c.passed
+                          ? "rounded bg-emerald-500/15 px-1 text-emerald-800 dark:text-emerald-200"
+                          : "rounded bg-muted px-1 text-muted-foreground"
+                      }
+                      title={c.detail}
+                    >
+                      {c.id}:{c.passed ? "Y" : "N"}
+                    </span>
+                  ))}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function BacktestResult({ result }: { result: HypothesisBacktest }) {
   return (
     <div className="space-y-3 rounded-md border bg-muted/20 p-4">
@@ -76,6 +156,13 @@ function BacktestResult({ result }: { result: HypothesisBacktest }) {
         <strong>Verdict: {result.verdict}</strong>
         <span className="text-xs text-muted-foreground">{result.bars.toLocaleString()} candles · {result.trade_count} trades</span>
       </div>
+      {result.buy_confidence && (
+        <p className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs">
+          BUY Confidence Score enabled — closed-bar only, no EMA-cross-alone entries. Execute when
+          score ≥ {String((result.buy_confidence as { execute_min_score?: number }).execute_min_score ?? 8)}
+          /10. HL and resistance use confirmed pivots (no future bars).
+        </p>
+      )}
       <div className="grid gap-4 md:grid-cols-3">
         {Object.entries(result.periods).map(([period, metrics]) => (
           <div key={period} className="rounded border bg-background p-3">
@@ -86,6 +173,9 @@ function BacktestResult({ result }: { result: HypothesisBacktest }) {
             <MetricRow label="Expectancy" value={`${metrics.expectancy.toFixed(3)}R`} />
             <MetricRow label="Profit factor" value={metrics.profit_factor?.toFixed(2)} />
             <MetricRow label="Max drawdown" value={`${(metrics.max_drawdown * 100).toFixed(1)}%`} />
+            {metrics.trade_rows && metrics.trade_rows.length > 0 && (
+              <TradeRowsTable rows={metrics.trade_rows} />
+            )}
           </div>
         ))}
       </div>
@@ -244,6 +334,9 @@ export default function HypothesisLabPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => setPrompt(BUY_CONFIDENCE_TEMPLATE)}>
+              Use BUY Confidence Score
+            </Button>
             <Button type="button" variant="secondary" size="sm" onClick={() => setPrompt(TRADE_TO_LIVE_TEMPLATE)}>
               Use Trade-to-Live template
             </Button>

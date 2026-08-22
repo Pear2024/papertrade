@@ -108,6 +108,13 @@ class Trade:
     equity_before: float
     equity_after: float
     r_multiple: float
+    confidence_score: float | None = None
+    confidence_label: str | None = None
+    conditions: dict[str, object] | None = None
+    risk_reward: float | None = None
+    win: bool | None = None
+    mfe_r: float | None = None
+    mae_r: float | None = None
 
     def row(self) -> dict[str, object]:
         data = asdict(self)
@@ -282,7 +289,7 @@ def signals_for(strategy: Strategy, bars: list[Candle], htf: list[Candle]) -> tu
     return out, reasons
 
 
-def simulate(strategy: Strategy, bars: list[Candle], signals: list[bool], reasons: list[str], r_target: float, costs: Costs, starting_equity: float, risk_fraction: float, max_hold: int, start_index: int = 200, end_index: int | None = None, atr_multiple: float = 1.0, stop_prices: list[float | None] | None = None) -> list[Trade]:
+def simulate(strategy: Strategy, bars: list[Candle], signals: list[bool], reasons: list[str], r_target: float, costs: Costs, starting_equity: float, risk_fraction: float, max_hold: int, start_index: int = 200, end_index: int | None = None, atr_multiple: float = 1.0, stop_prices: list[float | None] | None = None, signal_details: list[dict] | None = None) -> list[Trade]:
     """ATR or absolute structure stop; brackets active at next-open entry; SL first."""
     atr14 = atr(bars)
     trades: list[Trade] = []
@@ -314,7 +321,11 @@ def simulate(strategy: Strategy, bars: list[Candle], signals: list[bool], reason
         stop_fill = stop_raw * (1 - costs.impact_rate)
         quantity = equity * risk_fraction / (entry_fill - stop_fill)
         exit_i, exit_raw, exit_reason = min(entry_i + max_hold - 1, end_index - 1), bars[min(entry_i + max_hold - 1, end_index - 1)].close, "timeout"
+        mfe_exc = 0.0
+        mae_exc = 0.0
         for j in range(entry_i, min(entry_i + max_hold, end_index)):
+            mfe_exc = max(mfe_exc, bars[j].high - entry_raw)
+            mae_exc = max(mae_exc, entry_raw - bars[j].low)
             hit_sl, hit_tp = bars[j].low <= stop_raw, bars[j].high >= target_raw
             if hit_sl or hit_tp:  # stop is deliberately first if both occur
                 exit_i, exit_raw, exit_reason = j, (stop_raw if hit_sl else target_raw), ("stop" if hit_sl else "target")
@@ -328,7 +339,46 @@ def simulate(strategy: Strategy, bars: list[Candle], signals: list[bool], reason
         funding = 0.0  # Explicit spot model. Funding is not applicable.
         before = equity
         equity += net - funding
-        trades.append(Trade(strategy.id, strategy.version, r_target, reasons[i], bars[i].time, bars[entry_i].time, bars[exit_i].time, entry_raw, entry_fill, stop_raw, target_raw, exit_raw, exit_fill, quantity, exit_reason, gross, net, entry_fee, exit_fee, impact_cost, funding, entry_fee + exit_fee + impact_cost + funding, before, equity, net / (before * risk_fraction)))
+        risk_per_unit = entry_raw - stop_raw
+        mfe_r = (mfe_exc / risk_per_unit) if risk_per_unit > 0 else None
+        mae_r = (mae_exc / risk_per_unit) if risk_per_unit > 0 else None
+        detail = signal_details[i] if signal_details and i < len(signal_details) else None
+        trades.append(
+            Trade(
+                strategy.id,
+                strategy.version,
+                r_target,
+                reasons[i],
+                bars[i].time,
+                bars[entry_i].time,
+                bars[exit_i].time,
+                entry_raw,
+                entry_fill,
+                stop_raw,
+                target_raw,
+                exit_raw,
+                exit_fill,
+                quantity,
+                exit_reason,
+                gross,
+                net,
+                entry_fee,
+                exit_fee,
+                impact_cost,
+                funding,
+                entry_fee + exit_fee + impact_cost + funding,
+                before,
+                equity,
+                net / (before * risk_fraction),
+                confidence_score=(detail or {}).get("score"),
+                confidence_label=(detail or {}).get("label"),
+                conditions={"conditions": (detail or {}).get("conditions")} if detail else None,
+                risk_reward=float(r_target),
+                win=net > 0,
+                mfe_r=mfe_r,
+                mae_r=mae_r,
+            )
+        )
         i = exit_i + 1
     return trades
 

@@ -337,7 +337,7 @@ def test_lab_signals_detect_confirmed_hl_and_swing_break() -> None:
         Candle(i * 3600, 100 + i, 101 + i, 99 + i, 100 + i, 10)
         for i in range(220)
     ]
-    signals, reasons = hypothesis_lab.lab_signals(rules, bars, htf)
+    signals, reasons, _details = hypothesis_lab.lab_signals(rules, bars, htf)
     # Breakout bar index 216 should fire once HL is confirmed (confirm at 215).
     assert signals[216] is True
     assert "confirmed higher low" in reasons[216]
@@ -364,7 +364,7 @@ def test_lab_signals_wait_when_hl_missing() -> None:
         Candle(i * 3600, 100 + i, 101 + i, 99 + i, 100 + i, 10)
         for i in range(220)
     ]
-    signals, reasons = hypothesis_lab.lab_signals(rules, bars, htf)
+    signals, reasons, _details = hypothesis_lab.lab_signals(rules, bars, htf)
     assert signals[-1] is False
     assert "WAIT" in reasons[-1]
     assert "higher low" in reasons[-1] or "swing high" in reasons[-1]
@@ -384,7 +384,7 @@ def test_lab_signal_requires_closed_rule_filters_before_entry() -> None:
         for i in range(210)
     ]
 
-    signals, reasons = hypothesis_lab.lab_signals(rules, bars, htf)
+    signals, reasons, _details = hypothesis_lab.lab_signals(rules, bars, htf)
 
     assert signals[-1] is True
     assert "EMA9>EMA21" in reasons[-1]
