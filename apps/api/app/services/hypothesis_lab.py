@@ -80,6 +80,10 @@ new rules. Return only this supported shape:
 "steps":["trend","sr_zones","confirmation","risk_reward","decision"]}}
 Supported symbols: BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT, BNBUSDT, ADAUSDT.
 Intervals: 1m, 5m, 15m, 1h, 4h, 1d. HTF intervals: 1h, 4h, 1d.
+CRITICAL: Extract primary interval and HTF from the user text when present.
+Examples: "BTC 1h" or "interval 1h" → interval "1h"; "htf 4h" / "4h" as higher TF
+→ htf "4h". Do NOT keep the schema example defaults (15m/1h) when the prompt
+specifies other timeframes. "Stop 3 ATR, target 3R" → atr_multiple 3.0, r_target 3.0.
 Use only EMA trend, HTF EMA200, volume multiple, RSI min/max, ADX minimum,
 breakout bars, stop type atr or bar_low, R targets 1.5, 2, 2.5, or 3, and
 chart_emas (up to 5 distinct periods 2–500 for Market chart overlays).
@@ -89,6 +93,10 @@ If the prompt mentions Trade-to-Live, single setup, quality over quantity, WAIT/
 or min RR 1:2, set assistant.philosophy to "trade_to_live", prefer_wait true, min_rr 2.0,
 and r_target to at least 2.0. Never invent trades when filters are incomplete.
 Leave unspecified values at the defaults shown above."""
+
+# Rank for comparing primary vs higher timeframe (larger = slower).
+_INTERVAL_RANK = {"1m": 1, "5m": 2, "15m": 3, "1h": 4, "4h": 5, "1d": 6}
+_TF_TOKEN = r"(1m|5m|15m|1h|4h|1d)"
 
 
 def _fresh_defaults() -> dict[str, Any]:
@@ -359,14 +367,182 @@ def _number_after(pattern: str, text: str, default: float | int | None = None) -
     return int(value) if value.is_integer() else value
 
 
+def _normalize_tf_token(raw: str) -> str | None:
+    token = raw.strip().lower().replace(" ", "")
+    # Thai / prose expansions → canonical intervals.
+    prose = {
+        "1min": "1m",
+        "1minute": "1m",
+        "5min": "5m",
+        "5minute": "5m",
+        "15min": "15m",
+        "15minute": "15m",
+        "1hour": "1h",
+        "1hr": "1h",
+        "hourly": "1h",
+        "4hour": "4h",
+        "4hr": "4h",
+        "1day": "1d",
+        "daily": "1d",
+    }
+    token = prose.get(token, token)
+    if token in SUPPORTED_INTERVALS:
+        return token
+    return None
+
+
+def _next_htf_above(interval: str) -> str | None:
+    rank = _INTERVAL_RANK.get(interval, 0)
+    for candidate in ("1h", "4h", "1d"):
+        if _INTERVAL_RANK[candidate] > rank:
+            return candidate
+    return None
+
+
+def _parse_timeframes_from_prompt(text: str) -> tuple[str | None, str | None]:
+    """Extract primary interval and HTF from Thai/English prompt text.
+
+    Returns (interval, htf) where None means unspecified (keep defaults / LLM).
+    Explicit HTF labels win over ambiguous dual mentions; symbol-adjacent TF
+    (e.g. "BTC 1h") is treated as primary.
+    """
+    lowered = text.lower()
+    # Expand common Thai timeframe phrases before token matching.
+    lowered = (
+        lowered.replace("15 นาที", "15m")
+        .replace("15นาที", "15m")
+        .replace("5 นาที", "5m")
+        .replace("1 นาที", "1m")
+        .replace("1 ชั่วโมง", "1h")
+        .replace("1ชั่วโมง", "1h")
+        .replace("1 ชม", "1h")
+        .replace("1ชม", "1h")
+        .replace("4 ชั่วโมง", "4h")
+        .replace("4ชั่วโมง", "4h")
+        .replace("4 ชม", "4h")
+        .replace("4ชม", "4h")
+        .replace("รายวัน", "1d")
+        .replace("วันละครั้ง", "1d")
+    )
+
+    explicit_htf: str | None = None
+    for pattern in (
+        rf"(?:htf|higher\s*(?:time\s*)?frame|higher\s*tf|เทรนด์ใหญ่|ไทม์เฟรมใหญ่)"
+        rf"\s*[:=]?\s*{_TF_TOKEN}",
+        rf"(?:on|on the)\s+{_TF_TOKEN}\s+(?:close|ema|trend|htf)",
+        rf"{_TF_TOKEN}\s+close\s+above\s+ema",
+        rf"(?:htf|higher)\s+[^\d]{{0,12}}{_TF_TOKEN}",
+    ):
+        match = re.search(pattern, lowered, re.I)
+        if match:
+            token = _normalize_tf_token(match.group(1))
+            if token and token in SUPPORTED_HTF_INTERVALS:
+                explicit_htf = token
+                break
+
+    explicit_interval: str | None = None
+    for pattern in (
+        rf"(?:interval|timeframe|time\s*frame|primary|entry\s*tf|ltf|"
+        rf"ไทม์เฟรม|ช่วงเวลา|แท่ง)\s*[:=]?\s*{_TF_TOKEN}",
+        rf"\btf\b\s*[:=]?\s*{_TF_TOKEN}",
+        rf"\b(?:btc|eth|sol|xrp|bnb|ada)(?:usdt)?\s+{_TF_TOKEN}\b",
+    ):
+        match = re.search(pattern, lowered, re.I)
+        if match:
+            token = _normalize_tf_token(match.group(1))
+            if token:
+                explicit_interval = token
+                break
+
+    # Collect all interval tokens with positions for fallback / dual TF.
+    mentions = [
+        (_normalize_tf_token(m.group(1)), m.start())
+        for m in re.finditer(rf"\b{_TF_TOKEN}\b", lowered, re.I)
+    ]
+    mentions = [(tf, pos) for tf, pos in mentions if tf]
+
+    interval = explicit_interval
+    htf = explicit_htf
+
+    if interval is None and mentions:
+        # Prefer first non-HTF-context mention as primary.
+        for tf, pos in mentions:
+            window = lowered[max(0, pos - 24) : pos]
+            if re.search(r"(?:htf|higher|เทรนด์ใหญ่|ไทม์เฟรมใหญ่)\s*$", window):
+                continue
+            if htf and tf == htf:
+                continue
+            interval = tf
+            break
+        if interval is None:
+            interval = mentions[0][0]
+
+    if htf is None and mentions:
+        # Second distinct slower TF often means HTF (e.g. "15m ... 1h EMA200").
+        for tf, _pos in mentions:
+            if interval and tf == interval:
+                continue
+            if tf in SUPPORTED_HTF_INTERVALS and (
+                interval is None or _INTERVAL_RANK[tf] > _INTERVAL_RANK.get(interval, 0)
+            ):
+                htf = tf
+                break
+
+    return interval, htf
+
+
+def _parse_atr_multiple(text: str) -> float | None:
+    """Parse ATR stop multiple from phrases like 'ATR 1.5x', 'Stop 3 ATR', '3 ATR stop'."""
+    for pattern in (
+        r"atr.{0,15}?(\d+(?:\.\d+)?)\s*x",
+        r"(?:stop|stoploss|sl|หยุดขาดทุน).{0,24}?(\d+(?:\.\d+)?)\s*atr",
+        r"(\d+(?:\.\d+)?)\s*atr(?:\s*(?:stop|x|เท่า|stoploss|sl))?",
+        r"atr\s*[:=]?\s*(\d+(?:\.\d+)?)",
+    ):
+        value = _number_after(pattern, text)
+        if value is not None and 0.1 <= float(value) <= 10.0:
+            return float(value)
+    return None
+
+
+def _parse_r_target(text: str) -> float | None:
+    """Parse R target from '3R', 'target 3R', 'take profit 2.5R'."""
+    for pattern in (
+        r"(?:target|tp|take\s*profit|เป้า|เป้าหมาย).{0,20}?(\d+(?:\.\d+)?)\s*r\b",
+        r"(\d+(?:\.\d+)?)\s*r\b",
+        r"(?:rr|r\s*:\s*r|risk\s*reward).{0,12}?(?:1\s*:\s*)?(\d+(?:\.\d+)?)",
+    ):
+        value = _number_after(pattern, text)
+        if value in SUPPORTED_R_TARGETS or value in (1.5, 2, 2.5, 3, 2.0, 3.0):
+            return float(value)
+    return None
+
+
 def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, Any]:
     """Translate common Thai/English terms deterministically; no LLM is required."""
     text = prompt.lower()
     parsed = normalize_rules(rules)
     filters = parsed["filters"]
+
+    interval, htf = _parse_timeframes_from_prompt(text)
+    if interval:
+        parsed["interval"] = interval
+    if htf:
+        parsed["htf"] = htf
+    elif interval and _INTERVAL_RANK.get(str(parsed.get("htf")), 0) <= _INTERVAL_RANK.get(interval, 0):
+        # Primary moved up to/above previous HTF and user did not name HTF → bump.
+        bumped = _next_htf_above(interval)
+        if bumped:
+            parsed["htf"] = bumped
+
     if any(word in text for word in ("ema cross", "ema9", "ema 9", "ตัด ema", "อีเอ็มเอ")):
         filters["ema_trend"] = True
-    if any(word in text for word in ("htf", "1h", "hourly", "ema200", "ema 200", "เทรนด์ใหญ่")):
+    # HTF EMA200 filter: require EMA200 / trend language — not bare "1h" as primary TF.
+    if any(word in text for word in ("ema200", "ema 200", "เทรนด์ใหญ่")) or re.search(
+        r"(?:htf|higher\s*(?:time\s*)?frame).{0,40}(?:ema|close|trend)",
+        text,
+        re.I,
+    ) or re.search(rf"{_TF_TOKEN}\s+close\s+above\s+ema", text, re.I):
         filters["htf_ema200"] = True
     volume = _number_after(r"(?:volume|vol|ปริมาณ).{0,20}?(\d+(?:\.\d+)?)\s*(?:x|เท่า)", text)
     if volume is not None:
@@ -384,10 +560,10 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
         filters["breakout_bars"] = int(breakout)
     elif "breakout" in text or "เบรกเอาท์" in text:
         filters["breakout_bars"] = 20
-    target = _number_after(r"(\d+(?:\.\d+)?)\s*r\b", text)
-    if target in (1.5, 2, 2.5, 3):
+    target = _parse_r_target(text)
+    if target in SUPPORTED_R_TARGETS:
         parsed["r_target"] = float(target)
-    atr_multiple = _number_after(r"atr.{0,15}?(\d+(?:\.\d+)?)\s*x", text)
+    atr_multiple = _parse_atr_multiple(text)
     if atr_multiple is not None:
         parsed["stop"] = {"type": "atr", "atr_multiple": float(atr_multiple)}
     if "bar low" in text or "low ของแท่ง" in text:

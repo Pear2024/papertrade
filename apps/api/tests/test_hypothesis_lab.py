@@ -18,6 +18,8 @@ def test_parser_maps_english_filters_and_risk() -> None:
         "BTCUSDT 15m EMA cross with 1h EMA200, volume > 1.5x MA, RSI 50-70, ADX > 25, stop ATR 1.5x and 2R"
     )
     assert rules["symbol"] == "BTCUSDT"
+    assert rules["interval"] == "15m"
+    assert rules["htf"] == "1h"
     assert rules["filters"]["ema_trend"] is True
     assert rules["filters"]["htf_ema200"] is True
     assert rules["filters"]["volume_multiple"] == 1.5
@@ -27,6 +29,57 @@ def test_parser_maps_english_filters_and_risk() -> None:
     assert rules["stop"]["atr_multiple"] == 1.5
     assert rules["r_target"] == 2
     assert rules["chart_emas"] == [9, 21, 200]
+
+
+def test_parser_respects_btc_1h_primary_interval() -> None:
+    """Regression: 'BTC 1h' must not stay on default 15m/1h."""
+    rules = parse_prompt("BTC 1h EMA cross, volume 1.5x, Stop 3 ATR, target 3R")
+    assert rules["symbol"] == "BTCUSDT"
+    assert rules["interval"] == "1h"
+    assert rules["htf"] == "4h"  # bumped above primary when HTF unspecified
+    assert rules["stop"]["atr_multiple"] == 3.0
+    assert rules["r_target"] == 3.0
+
+
+def test_parser_interval_1h_with_explicit_htf_4h() -> None:
+    rules = parse_prompt(
+        "BTCUSDT interval 1h, HTF 4h close above EMA200, EMA9/21 trend, volume 1.5x, 2R"
+    )
+    assert rules["interval"] == "1h"
+    assert rules["htf"] == "4h"
+    assert rules["filters"]["htf_ema200"] is True
+
+
+def test_parser_overrides_llm_default_timeframes() -> None:
+    """Deterministic overlay must win when LLM left schema defaults."""
+    llm_defaults = hypothesis_lab.normalize_rules({"interval": "15m", "htf": "1h"})
+    rules = parse_prompt(
+        "BTC 1h HTF 4h EMA trend, Stop 3 ATR, target 3R",
+        llm_defaults,
+    )
+    assert rules["interval"] == "1h"
+    assert rules["htf"] == "4h"
+    assert rules["stop"]["atr_multiple"] == 3.0
+    assert rules["r_target"] == 3.0
+
+
+def test_parser_thai_timeframes() -> None:
+    rules = parse_prompt("BTC ไทม์เฟรม 1h เทรนด์ใหญ่ 4h EMA200 volume 1.5x 2R")
+    assert rules["interval"] == "1h"
+    assert rules["htf"] == "4h"
+    assert rules["filters"]["htf_ema200"] is True
+
+
+def test_parser_bare_1h_is_not_enough_for_htf_ema200() -> None:
+    rules = parse_prompt("BTC 1h EMA9 cross EMA21 volume 1.5x 2R")
+    assert rules["interval"] == "1h"
+    assert rules["filters"]["htf_ema200"] is False
+
+
+def test_parser_defaults_when_timeframe_unspecified() -> None:
+    rules = parse_prompt("EMA cross volume 1.5x 2R")
+    assert rules["interval"] == "15m"
+    assert rules["htf"] == "1h"
 
 
 def test_parser_maps_thai_template() -> None:
