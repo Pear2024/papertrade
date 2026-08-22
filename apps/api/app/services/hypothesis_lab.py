@@ -1120,6 +1120,42 @@ def access_status(db: Session, owner_id: int, plan: str) -> dict[str, Any]:
     }
 
 
+async def chart_entry_markers(
+    db: Session,
+    owner_id: int,
+    hypothesis_id: str,
+    bars_count: int = 500,
+) -> dict[str, Any]:
+    """Rising-edge Lab ENTRY times for Market chart markers (same rules as backtest/AUTO)."""
+    hypothesis_row = _get_owned(db, owner_id, hypothesis_id)
+    hypothesis = _hypothesis_to_dict(hypothesis_row)
+    rules = hypothesis["structured_rules"]
+    bars_count = max(200, min(int(bars_count), 2000))
+    bars, _ = await fetch_bars(rules["interval"], bars_count, rules["symbol"])
+    htf_count = max(250, len(bars) // 4 + 200)
+    htf, _ = await fetch_bars(rules["htf"], htf_count, rules["symbol"])
+    signals, _ = lab_signals(rules, bars, htf)
+    markers: list[dict[str, Any]] = []
+    for i in range(1, len(signals)):
+        if signals[i] and not signals[i - 1]:
+            markers.append(
+                {
+                    "time": int(bars[i].time),
+                    "text": "ENTRY BUY",
+                    "position": "belowBar",
+                    "color": "#00e676",
+                    "shape": "arrowUp",
+                }
+            )
+    return {
+        "hypothesis_id": hypothesis["id"],
+        "symbol": rules["symbol"],
+        "interval": rules["interval"],
+        "count": len(markers),
+        "markers": markers,
+    }
+
+
 async def run_backtest(
     db: Session,
     owner_id: int,

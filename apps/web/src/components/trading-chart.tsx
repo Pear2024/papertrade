@@ -149,6 +149,14 @@ export function TradingChart({
     refetchInterval: 30_000,
   });
 
+  const labMarkersQuery = useQuery({
+    queryKey: ["lab-chart-markers", activeLab?.id, interval],
+    queryFn: () => api.hypothesisChartMarkers(activeLab!.id, 500),
+    enabled: Boolean(activeLab?.id),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+
   const signalQuery = useQuery({
     queryKey: [
       "coach-signal",
@@ -210,6 +218,13 @@ export function TradingChart({
 
   const chartMarkers = useMemo(() => {
     const candleTimes = candleSeries.map((c) => c.time);
+    const fromLab = (labMarkersQuery.data?.markers ?? []).map((m) => ({
+      time: m.time,
+      position: (m.position as "belowBar" | "aboveBar") || "belowBar",
+      color: m.color || "#00e676",
+      shape: (m.shape as "circle" | "arrowUp" | "arrowDown") || "arrowUp",
+      text: m.text || "ENTRY BUY",
+    }));
     const fromHistory = buildCoachHistoryMarkers(historyQuery.data?.items ?? []);
     const fromTrades = buildTradeEntryMarkers(
       tradesQuery.data ?? [],
@@ -218,13 +233,34 @@ export function TradingChart({
       interval,
     );
     const merged = mergeLiveCoachSignalMarker(
-      [...fromHistory, ...fromTrades],
+      [...fromLab, ...fromHistory, ...fromTrades],
       signalQuery.data,
       candleTimes,
       interval,
     );
     return alignMarkersToCandles(merged, candleTimes, interval);
-  }, [candleSeries, historyQuery.data, tradesQuery.data, signalQuery.data, symbol, interval]);
+  }, [
+    candleSeries,
+    labMarkersQuery.data,
+    historyQuery.data,
+    tradesQuery.data,
+    signalQuery.data,
+    symbol,
+    interval,
+  ]);
+
+  const applyMarkers = () => {
+    if (!candleRef.current) return;
+    candleRef.current.setMarkers(
+      chartMarkers.map((m) => ({
+        time: m.time as UTCTimestamp,
+        position: m.position,
+        color: m.color,
+        shape: m.shape,
+        text: m.text,
+      })),
+    );
+  };
 
   useEffect(() => {
     const el = containerRef.current;
@@ -369,22 +405,24 @@ export function TradingChart({
       timeScale?.scrollToRealTime();
       shouldFitRef.current = false;
     }
+    // setData clears markers — re-apply after paint
     requestAnimationFrame(() => {
       pinningRef.current = false;
+      if (!candleRef.current) return;
+      candleRef.current.setMarkers(
+        chartMarkers.map((m) => ({
+          time: m.time as UTCTimestamp,
+          position: m.position,
+          color: m.color,
+          shape: m.shape,
+          text: m.text,
+        })),
+      );
     });
-  }, [candleSeries, followLive, emaPeriodsKey]);
+  }, [candleSeries, followLive, emaPeriodsKey, chartMarkers]);
 
   useEffect(() => {
-    if (!candleRef.current) return;
-    candleRef.current.setMarkers(
-      chartMarkers.map((m) => ({
-        time: m.time as UTCTimestamp,
-        position: m.position,
-        color: m.color,
-        shape: m.shape,
-        text: m.text,
-      })),
-    );
+    applyMarkers();
   }, [chartMarkers]);
 
   const last = candleSeries.at(-1);
@@ -502,9 +540,18 @@ export function TradingChart({
             <Link href="/lab" className="underline underline-offset-2" style={{ color: TV.text }}>
               Lab
             </Link>
-            , promote a paper profile, then run AUTO on Market or Coach. EMA lines follow periods
-            from your promoted Lab profile (visual context only).
+            , promote a paper profile, then run AUTO on Market or Coach. Green{" "}
+            <span style={{ color: "#00e676" }}>ENTRY BUY</span> arrows mark where this Lab profile
+            would enter (closed-bar rules). Scroll back to see history on loaded candles.
           </p>
+          {labMarkersQuery.data && (
+            <p>
+              Lab markers:{" "}
+              <span style={{ color: TV.text }}>{labMarkersQuery.data.count}</span> ENTRY points in
+              the last {500} bars
+              {labMarkersQuery.isFetching ? " · updating…" : ""}
+            </p>
+          )}
         </div>
         {holdCard && (
           <HoldStatusCard

@@ -1,5 +1,5 @@
 """Per-user Hypothesis Lab routes (DB-backed, owner-scoped)."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -10,6 +10,7 @@ from app.schemas.hypothesis_lab import (
     HypothesisCreateRequest,
     HypothesisListResponse,
     HypothesisResponse,
+    LabChartMarkersResponse,
 )
 from app.services import hypothesis_lab
 
@@ -72,6 +73,24 @@ def delete_hypothesis(
         hypothesis_lab.delete_hypothesis(db, current_user.id, hypothesis_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{hypothesis_id}/chart-markers", response_model=LabChartMarkersResponse)
+async def hypothesis_chart_markers(
+    hypothesis_id: str,
+    bars: int = Query(default=500, ge=200, le=2000),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """ENTRY BUY marker times for the Market chart (Lab profile rules, rising edges)."""
+    try:
+        return await hypothesis_lab.chart_entry_markers(
+            db, current_user.id, hypothesis_id, bars
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/{hypothesis_id}/backtest")

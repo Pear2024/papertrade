@@ -29,3 +29,19 @@ class HypothesisResponse(BaseModel):
 
 class HypothesisListResponse(BaseModel):
     items: list[HypothesisResponse]
+
+
+class LabChartMarker(BaseModel):
+    time: int
+    text: str = "ENTRY BUY"
+    position: str = "belowBar"
+    color: str = "#00e676"
+    shape: str = "arrowUp"
+
+
+class LabChartMarkersResponse(BaseModel):
+    hypothesis_id: str
+    symbol: str
+    interval: str
+    count: int
+    markers: list[LabChartMarker]

@@ -315,6 +315,25 @@ export const api = {
     apiFetch<HypothesisBacktest>(`/hypothesis-lab/${encodeURIComponent(id)}/backtest`, {
       method: "POST", body: JSON.stringify({ bars }),
     }, true, 60_000),
+  hypothesisChartMarkers: (id: string, bars = 500) =>
+    apiFetch<{
+      hypothesis_id: string;
+      symbol: string;
+      interval: string;
+      count: number;
+      markers: Array<{
+        time: number;
+        text: string;
+        position: string;
+        color: string;
+        shape: string;
+      }>;
+    }>(
+      `/hypothesis-lab/${encodeURIComponent(id)}/chart-markers?bars=${bars}`,
+      {},
+      true,
+      60_000,
+    ),
   promoteHypothesis: (id: string) =>
     apiFetch<HypothesisLabItem>(`/hypothesis-lab/${encodeURIComponent(id)}/promote`, {
       method: "POST",
