@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.core.money import money, to_decimal
 from app.research.experiment_engine.runner import Candle, atr
 from app.services.coach import CoachVerdict
-from app.services.hypothesis_lab import lab_signals, list_hypotheses, normalize_rules
+from app.services.hypothesis_lab import lab_signals, list_hypotheses, normalize_rules, structure_stop_price
 from app.services.prices import ALLOWED_CANDLE_INTERVALS, get_candles, require_asset
 from app.services.risk_reward import calculate_net_risk_reward
 
@@ -85,7 +85,9 @@ async def evaluate_promoted_lab(
     signal_bar, fill_bar = bars[-1], candles[fill_i]
     entry = to_decimal(fill_bar.open)
     atr14 = atr(bars)
-    triggered = signals[-1] and atr14[-1] is not None
+    stop_type = str(rules["stop"].get("type") or "atr")
+    needs_atr = stop_type == "atr"
+    triggered = bool(signals[-1]) and (not needs_atr or atr14[-1] is not None)
     reason = reasons[-1] or "No Lab entry filters passed."
     if not triggered:
         return CoachVerdict(
@@ -101,12 +103,17 @@ async def evaluate_promoted_lab(
             entry_fill="next_open", entry_fill_price=entry,
         ), profile
 
-    stop = (
-        entry - to_decimal(atr14[-1]) * Decimal(str(rules["stop"]["atr_multiple"]))
-        if rules["stop"]["type"] == "atr"
-        else to_decimal(signal_bar.low)
-    )
-    if stop <= 0 or stop >= entry:
+    if stop_type in {"structure", "higher_low"}:
+        level = structure_stop_price(rules, bars, len(bars) - 1)
+        stop = to_decimal(level) if level is not None else None
+        stop_label = "structure/HL stop"
+    elif stop_type == "atr":
+        stop = entry - to_decimal(atr14[-1]) * Decimal(str(rules["stop"]["atr_multiple"]))
+        stop_label = "ATR stop"
+    else:
+        stop = to_decimal(signal_bar.low)
+        stop_label = "bar-low stop"
+    if stop is None or stop <= 0 or stop >= entry:
         return CoachVerdict(
             symbol=sym, interval=iv, signal="WAIT", confidence=40,
             reason=(
@@ -136,7 +143,7 @@ async def evaluate_promoted_lab(
         reason=(
             f"LAB {profile['id']} v{profile['version']} "
             f"{'NO TRADE — net RR below ' + f'{effective_min_rr:.2f}' if blocked else 'BUY / LONG SETUP'}: "
-            f"{reason}. Closed bar → next open {entry}; ATR stop {stop}; "
+            f"{reason}. Closed bar → next open {entry}; {stop_label} {stop}; "
             f"{rules['r_target']}R target {target}."
         ),
         cofr=f"C:85 | O:lab | F:{'WAIT' if blocked else 'ENTRY_BUY'} | R:closed→next-open",

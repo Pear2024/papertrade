@@ -233,8 +233,141 @@ def test_llm_output_is_limited_to_supported_rules() -> None:
     assert rules["interval"] == "15m"
     assert rules["filters"]["volume_multiple"] == 10
     assert (rules["filters"]["rsi_min"], rules["filters"]["rsi_max"]) == (10, 90)
-    assert rules["stop"] == {"type": "atr", "atr_multiple": 10}
+    assert rules["stop"] == {"type": "atr", "atr_multiple": 10, "buffer_pct": 0.0}
     assert rules["r_target"] == 2
+
+
+def test_parser_maps_higher_low_swing_break_and_structure_stop() -> None:
+    prompt = (
+        "BTCUSDT 15m: long only when 1h close is above EMA200, EMA9 is above EMA21, "
+        "price forms a confirmed higher low, then a 15m candle closes above the previous swing high, "
+        "volume > 1.5x 20-bar average, stop below the confirmed higher low, target 2R. "
+        "No entry before the breakout candle closes."
+    )
+    rules = parse_prompt(prompt)
+    assert rules["symbol"] == "BTCUSDT"
+    assert rules["interval"] == "15m"
+    assert rules["htf"] == "1h"
+    assert rules["filters"]["ema_trend"] is True
+    assert rules["filters"]["htf_ema200"] is True
+    assert rules["filters"]["volume_multiple"] == 1.5
+    assert rules["filters"]["higher_low"] is True
+    assert rules["filters"]["break_swing_high"] is True
+    assert rules["filters"]["breakout_bars"] is None  # not Donchian 20
+    assert rules["stop"]["type"] == "structure"
+    assert rules["r_target"] == 2.0
+    assert rules["assistant"]["prefer_wait"] is True
+    assert rules["assistant"]["require_ltf_confirmation"] is True
+
+
+def test_parser_keeps_atr_when_stop_below_structure_with_atr() -> None:
+    rules = parse_prompt(hypothesis_lab.TRADE_TO_LIVE_PROMPT)
+    assert rules["stop"]["type"] == "atr"
+    assert rules["stop"]["atr_multiple"] == 1.0
+
+
+def test_normalize_accepts_structure_stop_aliases() -> None:
+    for stop_type in ("structure", "higher_low"):
+        rules = hypothesis_lab.normalize_rules({
+            "filters": {"higher_low": True, "break_swing_high": True},
+            "stop": {"type": stop_type, "buffer_pct": 0.25},
+        })
+        assert rules["filters"]["higher_low"] is True
+        assert rules["filters"]["break_swing_high"] is True
+        assert rules["stop"]["type"] == stop_type
+        assert rules["stop"]["buffer_pct"] == 0.25
+
+
+def _hl_breakout_bars(*, lookback: int = 3) -> list[Candle]:
+    """Synthetic uptrend with L1 → H → L2(HL) → close above H at the last bar."""
+    bars = [
+        Candle(i * 900, 100 + i * 0.1, 100.5 + i * 0.1, 99.5 + i * 0.1, 100 + i * 0.1, 10)
+        for i in range(220)
+    ]
+    # Place pivots near the end so warmup (200) still allows evaluation on the last bars.
+    # Indices chosen so lookback=3 confirms before the final breakout close.
+    base = 100.0
+    # Flat-ish region then structure legs (override OHLC carefully).
+    for i in range(200, 220):
+        bars[i] = Candle(i * 900, base, base + 1, base - 1, base, 10)
+
+    def set_bar(i: int, o: float, h: float, l: float, c: float, v: float = 10) -> None:
+        bars[i] = Candle(i * 900, o, h, l, c, v)
+
+    # L1 pivot at 205 (needs 202..208)
+    set_bar(202, 100, 101, 99.5, 100)
+    set_bar(203, 100, 100.5, 99.2, 99.5)
+    set_bar(204, 99.5, 100, 98.8, 99)
+    set_bar(205, 99, 99.5, 97.0, 98.5)  # swing low L1 = 97
+    set_bar(206, 98.5, 99.5, 98.0, 99)
+    set_bar(207, 99, 100.5, 98.5, 100)
+    set_bar(208, 100, 101, 99.5, 100.5)
+    # H pivot at 209
+    set_bar(209, 100.5, 104.0, 100.0, 103.0)  # swing high = 104
+    set_bar(210, 103, 103.5, 101.5, 102)
+    set_bar(211, 102, 102.5, 100.5, 101)
+    # L2 higher low pivot at 212 (low 98 > 97)
+    set_bar(212, 101, 101.5, 98.0, 99.5)  # HL low = 98
+    set_bar(213, 99.5, 100.5, 98.5, 100)
+    set_bar(214, 100, 101.5, 99.5, 101)
+    set_bar(215, 101, 102, 100.5, 101.5)
+    # Breakout close above 104 with volume spike
+    set_bar(216, 101.5, 105.5, 101.0, 105.0, 40)
+    set_bar(217, 105, 106, 104.5, 105.5, 12)
+    set_bar(218, 105.5, 106.5, 105, 106, 12)
+    set_bar(219, 106, 107, 105.5, 106.5, 12)
+    _ = lookback
+    return bars
+
+
+def test_lab_signals_detect_confirmed_hl_and_swing_break() -> None:
+    rules = hypothesis_lab.normalize_rules({
+        "filters": {
+            "ema_trend": False,
+            "htf_ema200": False,
+            "higher_low": True,
+            "break_swing_high": True,
+            "volume_multiple": 1.5,
+            "swing_lookback": 3,
+        },
+        "stop": {"type": "structure"},
+    })
+    bars = _hl_breakout_bars()
+    htf = [
+        Candle(i * 3600, 100 + i, 101 + i, 99 + i, 100 + i, 10)
+        for i in range(220)
+    ]
+    signals, reasons = hypothesis_lab.lab_signals(rules, bars, htf)
+    # Breakout bar index 216 should fire once HL is confirmed (confirm at 215).
+    assert signals[216] is True
+    assert "confirmed higher low" in reasons[216]
+    assert "close>prior swing high" in reasons[216]
+    assert "volume>1.5x" in reasons[216]
+    stop = hypothesis_lab.structure_stop_price(rules, bars, 216)
+    assert stop == 98.0
+
+
+def test_lab_signals_wait_when_hl_missing() -> None:
+    rules = hypothesis_lab.normalize_rules({
+        "filters": {
+            "ema_trend": False,
+            "higher_low": True,
+            "break_swing_high": True,
+            "swing_lookback": 3,
+        },
+    })
+    bars = [
+        Candle(i * 900, 100 + i, 101 + i, 99 + i, 100 + i, 10)
+        for i in range(220)
+    ]
+    htf = [
+        Candle(i * 3600, 100 + i, 101 + i, 99 + i, 100 + i, 10)
+        for i in range(220)
+    ]
+    signals, reasons = hypothesis_lab.lab_signals(rules, bars, htf)
+    assert signals[-1] is False
+    assert "WAIT" in reasons[-1]
+    assert "higher low" in reasons[-1] or "swing high" in reasons[-1]
 
 
 def test_lab_signal_requires_closed_rule_filters_before_entry() -> None:
@@ -274,21 +407,27 @@ def test_promoted_lab_signal_becomes_next_open_entry(monkeypatch) -> None:
     profile = {
         "id": "lab-entry", "version": "1.0.0", "promoted_at": "2026-01-01T00:00:00Z",
         "structured_rules": hypothesis_lab.normalize_rules({
-            "filters": {"volume_multiple": 1.5},
+            "filters": {"ema_trend": False, "volume_multiple": 1.5},
             "stop": {"type": "atr", "atr_multiple": 5},
+            "assistant": {"min_rr": 1.0},
         }),
     }
 
     async def candles_for_test(*_args, **_kwargs):
         return "BTC", "15m", "test", candles if _args[2] == "15m" else htf
 
+    class _FeeFree:
+        paper_trading_fee_percent = 0
+        paper_trading_fee_usd = 0
+
     monkeypatch.setattr(lab_auto, "promoted_profile", lambda *_args, **_kwargs: profile)
     monkeypatch.setattr(lab_auto, "get_candles", candles_for_test)
     monkeypatch.setattr(lab_auto, "require_asset", lambda *_args: object())
+    monkeypatch.setattr(lab_auto, "get_settings", lambda: _FeeFree())
 
     verdict, used = asyncio.run(lab_auto.evaluate_promoted_lab(
         None, 1, "BTC", "15m", hypothesis_id="lab-entry", min_net_rr=0.1,
-        slippage_bps=3, spread_bps=2, notional_usd=Decimal("1000"),
+        slippage_bps=0, spread_bps=0, notional_usd=Decimal("1000"),
     ))
 
     assert used["id"] == "lab-entry"

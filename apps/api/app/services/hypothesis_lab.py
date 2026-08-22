@@ -40,11 +40,25 @@ ASSISTANT_DEFAULT: dict[str, Any] = {
     "require_ltf_confirmation": True,
     "steps": ["trend", "sr_zones", "confirmation", "risk_reward", "decision"],
 }
+DEFAULT_SWING_LOOKBACK = 3
+SUPPORTED_STOP_TYPES = {"atr", "bar_low", "structure", "higher_low"}
 DEFAULT_RULES: dict[str, Any] = {
     "symbol": "BTCUSDT", "interval": "15m", "htf": "1h",
-    "filters": {"ema_trend": True, "htf_ema200": False, "volume_multiple": None,
-                "rsi_min": None, "rsi_max": None, "adx_min": None, "breakout_bars": None},
-    "stop": {"type": "atr", "atr_multiple": 1.0}, "r_target": 2.0,
+    "filters": {
+        "ema_trend": True,
+        "htf_ema200": False,
+        "volume_multiple": None,
+        "rsi_min": None,
+        "rsi_max": None,
+        "adx_min": None,
+        "breakout_bars": None,
+        # Structure: confirmed higher low + close above prior swing high (not Donchian).
+        "higher_low": False,
+        "break_swing_high": False,
+        "swing_lookback": DEFAULT_SWING_LOOKBACK,
+    },
+    "stop": {"type": "atr", "atr_multiple": 1.0, "buffer_pct": 0.0},
+    "r_target": 2.0,
     # Chart overlay periods (visual only). Empty → Market chart falls back to 9+21.
     "chart_emas": [],
     "assistant": dict(ASSISTANT_DEFAULT),
@@ -73,7 +87,8 @@ not investment advice: do not add commentary, explanations, profitability claims
 new rules. Return only this supported shape:
 {"symbol":"BTCUSDT","interval":"15m","htf":"1h","filters":{"ema_trend":true,
 "htf_ema200":false,"volume_multiple":null,"rsi_min":null,"rsi_max":null,
-"adx_min":null,"breakout_bars":null},"stop":{"type":"atr","atr_multiple":1.0},
+"adx_min":null,"breakout_bars":null,"higher_low":false,"break_swing_high":false,
+"swing_lookback":3},"stop":{"type":"atr","atr_multiple":1.0,"buffer_pct":0.0},
 "r_target":2.0,"chart_emas":[9,21],
 "assistant":{"philosophy":null,"prefer_wait":true,"min_rr":2.0,
 "max_trades_per_week_hint":3,"require_ltf_confirmation":true,
@@ -85,8 +100,15 @@ Examples: "BTC 1h" or "interval 1h" → interval "1h"; "htf 4h" / "4h" as higher
 → htf "4h". Do NOT keep the schema example defaults (15m/1h) when the prompt
 specifies other timeframes. "Stop 3 ATR, target 3R" → atr_multiple 3.0, r_target 3.0.
 Use only EMA trend, HTF EMA200, volume multiple, RSI min/max, ADX minimum,
-breakout bars, stop type atr or bar_low, R targets 1.5, 2, 2.5, or 3, and
-chart_emas (up to 5 distinct periods 2–500 for Market chart overlays).
+breakout_bars (Donchian N-bar high ONLY when user says N-bar / Donchian breakout),
+higher_low (confirmed higher low / HL), break_swing_high (close above prior swing high),
+stop type atr | bar_low | structure | higher_low, optional buffer_pct under HL,
+R targets 1.5, 2, 2.5, or 3, and chart_emas (up to 5 distinct periods 2–500).
+When the user says higher low + swing high breakout, set higher_low and
+break_swing_high true and do NOT set breakout_bars. Stop below HL / structure →
+stop.type "structure" (or "higher_low"). ATR wording → stop.type "atr".
+Closed-bar / no entry before breakout candle closes → prefer_wait true and
+require_ltf_confirmation true.
 When the user mentions EMA periods (e.g. EMA9, EMA 50, EMA200), include them in
 chart_emas. If ema_trend is true include 9 and 21; if htf_ema200 is true include 200.
 If the prompt mentions Trade-to-Live, single setup, quality over quantity, WAIT/NO TRADE,
@@ -193,7 +215,7 @@ def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | Non
 
         filters = source.get("filters")
         if isinstance(filters, dict):
-            for name in ("ema_trend", "htf_ema200"):
+            for name in ("ema_trend", "htf_ema200", "higher_low", "break_swing_high"):
                 if isinstance(filters.get(name), bool):
                     normalized["filters"][name] = filters[name]
             for name, minimum, maximum in (
@@ -213,14 +235,22 @@ def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | Non
                 normalized["filters"]["breakout_bars"] = None
             elif breakout is not None:
                 normalized["filters"]["breakout_bars"] = int(round(breakout))
+            swing_lb = _number(filters.get("swing_lookback"), 2, 20)
+            if swing_lb is not None:
+                normalized["filters"]["swing_lookback"] = int(round(swing_lb))
 
         stop = source.get("stop")
         if isinstance(stop, dict):
-            if isinstance(stop.get("type"), str) and stop["type"] in {"atr", "bar_low"}:
+            if isinstance(stop.get("type"), str) and stop["type"] in SUPPORTED_STOP_TYPES:
                 normalized["stop"]["type"] = stop["type"]
             multiplier = _number(stop.get("atr_multiple"), 0.1, 10.0)
             if multiplier is not None:
                 normalized["stop"]["atr_multiple"] = multiplier
+            buffer_pct = _number(stop.get("buffer_pct"), 0.0, 5.0)
+            if buffer_pct is not None:
+                normalized["stop"]["buffer_pct"] = float(buffer_pct)
+            elif "buffer_pct" not in normalized["stop"]:
+                normalized["stop"]["buffer_pct"] = 0.0
 
         if "chart_emas" in source:
             normalized["chart_emas"] = normalize_ema_periods(source.get("chart_emas"))
@@ -556,18 +586,51 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
     if adx_min is not None:
         filters["adx_min"] = float(adx_min)
     breakout = _number_after(r"(?:breakout|เบรก).{0,25}?(\d+)\s*(?:bar|แท่ง)", text)
-    if breakout is not None:
+    structure_break = _mentions_structure_breakout(text)
+    if structure_break:
+        filters["higher_low"] = True
+        filters["break_swing_high"] = True
+        # Prefer WAIT until HL + closed breakout candle confirm.
+        assistant = dict(parsed.get("assistant") or ASSISTANT_DEFAULT)
+        assistant["prefer_wait"] = True
+        assistant["require_ltf_confirmation"] = True
+        parsed["assistant"] = assistant
+    elif breakout is not None:
         filters["breakout_bars"] = int(breakout)
-    elif "breakout" in text or "เบรกเอาท์" in text:
+    elif ("breakout" in text or "เบรกเอาท์" in text) and not _mentions_swing_or_hl(text):
         filters["breakout_bars"] = 20
+    if _mentions_higher_low(text):
+        filters["higher_low"] = True
+    if _mentions_swing_high_break(text):
+        filters["break_swing_high"] = True
     target = _parse_r_target(text)
     if target in SUPPORTED_R_TARGETS:
         parsed["r_target"] = float(target)
     atr_multiple = _parse_atr_multiple(text)
     if atr_multiple is not None:
-        parsed["stop"] = {"type": "atr", "atr_multiple": float(atr_multiple)}
+        parsed["stop"] = {"type": "atr", "atr_multiple": float(atr_multiple), "buffer_pct": 0.0}
     if "bar low" in text or "low ของแท่ง" in text:
-        parsed["stop"] = {"type": "bar_low", "atr_multiple": 1.0}
+        parsed["stop"] = {"type": "bar_low", "atr_multiple": 1.0, "buffer_pct": 0.0}
+    if _mentions_structure_stop(text):
+        parsed["stop"] = {
+            "type": "structure",
+            "atr_multiple": float((parsed.get("stop") or {}).get("atr_multiple") or 1.0),
+            "buffer_pct": float((parsed.get("stop") or {}).get("buffer_pct") or 0.0),
+        }
+    if any(phrase in text for phrase in (
+        "no entry before",
+        "closed candle only",
+        "closed-bar",
+        "closed bar",
+        "breakout candle closes",
+        "candle closes",
+        "รอแท่งปิด",
+        "ปิดแท่ง",
+    )):
+        assistant = dict(parsed.get("assistant") or ASSISTANT_DEFAULT)
+        assistant["prefer_wait"] = True
+        assistant["require_ltf_confirmation"] = True
+        parsed["assistant"] = assistant
     symbol = re.search(r"\b(BTC|ETH|SOL|XRP|BNB|ADA)USDT?\b", prompt.upper())
     if symbol:
         parsed["symbol"] = symbol.group(0).replace("USDT", "") + "USDT"
@@ -592,6 +655,62 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
         explicit=list(parsed.get("chart_emas") or []),
     )
     return normalize_rules(parsed)
+
+
+def _mentions_higher_low(text: str) -> bool:
+    return bool(
+        re.search(r"higher\s*lows?|confirmed\s*hl|\bhl\b|higher\s*low|โลว์สูงขึ้น|ไฮเออร์โลว์", text, re.I)
+    )
+
+
+def _mentions_swing_high_break(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:closes?\s+above|break(?:s|ing)?|above).{0,40}swing\s*high|"
+            r"swing\s*high.{0,40}(?:break|closes?\s+above)|"
+            r"previous\s+swing\s+high|prior\s+swing\s+high|"
+            r"สวิงไฮ|เหนือสวิง",
+            text,
+            re.I,
+        )
+    )
+
+
+def _mentions_swing_or_hl(text: str) -> bool:
+    return _mentions_higher_low(text) or "swing" in text or "สวิง" in text
+
+
+def _mentions_structure_breakout(text: str) -> bool:
+    """HL + swing-high break language (not Donchian N-bar breakout)."""
+    return _mentions_higher_low(text) and _mentions_swing_high_break(text)
+
+
+def _mentions_structure_stop(text: str) -> bool:
+    """True when stop is the HL/structure low — not ATR sized 'below structure'."""
+    hl_stop = bool(
+        re.search(
+            r"stop.{0,40}(?:below|under).{0,40}(?:confirmed\s+)?(?:higher\s*low|\bhl\b)",
+            text,
+            re.I,
+        )
+        or re.search(
+            r"(?:below|under).{0,20}(?:confirmed\s+)?(?:higher\s*low|\bhl\b).{0,20}stop",
+            text,
+            re.I,
+        )
+        or "stop below the confirmed higher low" in text
+        or "ใต้ higher low" in text
+        or "ใต้ hl" in text
+        or "สต็อปใต้โครงสร้าง" in text
+    )
+    if hl_stop:
+        return True
+    # Bare "stop below structure" only when ATR is not the sized stop method.
+    if "stop below structure" in text or "สต็อปใต้ structure" in text:
+        if _parse_atr_multiple(text) is not None or re.search(r"\batr\b", text):
+            return False
+        return True
+    return False
 
 
 def _is_trade_to_live_prompt(text: str) -> bool:
@@ -812,6 +931,98 @@ def delete_hypothesis(db: Session, owner_id: int, hypothesis_id: str) -> None:
     db.commit()
 
 
+def _is_pivot_low(bars: list, pivot: int, lookback: int) -> bool:
+    low = bars[pivot].low
+    left = min(bars[j].low for j in range(pivot - lookback, pivot))
+    right = min(bars[j].low for j in range(pivot + 1, pivot + lookback + 1))
+    return low < left and low < right
+
+
+def _is_pivot_high(bars: list, pivot: int, lookback: int) -> bool:
+    high = bars[pivot].high
+    left = max(bars[j].high for j in range(pivot - lookback, pivot))
+    right = max(bars[j].high for j in range(pivot + 1, pivot + lookback + 1))
+    return high > left and high > right
+
+
+def _confirmed_swing_lows(bars: list, as_of: int, lookback: int) -> list[tuple[int, float]]:
+    """Swing lows confirmed by `as_of` (pivot needs `lookback` bars after it)."""
+    out: list[tuple[int, float]] = []
+    for pivot in range(lookback, as_of - lookback + 1):
+        if _is_pivot_low(bars, pivot, lookback):
+            out.append((pivot, bars[pivot].low))
+    return out
+
+
+def _confirmed_swing_highs(bars: list, as_of: int, lookback: int) -> list[tuple[int, float]]:
+    out: list[tuple[int, float]] = []
+    for pivot in range(lookback, as_of - lookback + 1):
+        if _is_pivot_high(bars, pivot, lookback):
+            out.append((pivot, bars[pivot].high))
+    return out
+
+
+def structure_setup_at(
+    bars: list,
+    i: int,
+    *,
+    lookback: int = DEFAULT_SWING_LOOKBACK,
+) -> dict[str, Any] | None:
+    """
+    Bullish HL → break prior swing high setup at closed bar i.
+
+    Pattern: swing low L1 → swing high H between → swing low L2 (L2.low > L1.low),
+    then close[i] above H. Entry is evaluated only on closed bars (caller fills next open).
+    """
+    if i < lookback * 2 + 2 or i >= len(bars):
+        return None
+    lows = _confirmed_swing_lows(bars, i, lookback)
+    highs = _confirmed_swing_highs(bars, i, lookback)
+    if len(lows) < 2:
+        return None
+    # Prefer the newest higher-low pair that still has a swing high between them.
+    for l2_idx in range(len(lows) - 1, 0, -1):
+        l2_pivot, l2_low = lows[l2_idx]
+        for l1_idx in range(l2_idx - 1, -1, -1):
+            l1_pivot, l1_low = lows[l1_idx]
+            if l2_low <= l1_low:
+                continue
+            between = [h for h in highs if l1_pivot < h[0] < l2_pivot]
+            if not between:
+                continue
+            # Break the highest swing high between the two lows (structure resistance).
+            swing_pivot, swing_high = max(between, key=lambda item: item[1])
+            return {
+                "higher_low": True,
+                "hl_low": float(l2_low),
+                "hl_pivot": l2_pivot,
+                "prior_low": float(l1_low),
+                "prior_low_pivot": l1_pivot,
+                "swing_high": float(swing_high),
+                "swing_high_pivot": swing_pivot,
+                "break_swing_high": bars[i].close > swing_high,
+            }
+    return None
+
+
+def structure_stop_price(
+    rules: dict[str, Any],
+    bars: list,
+    i: int,
+) -> float | None:
+    """Absolute stop below confirmed HL low when stop.type is structure/higher_low."""
+    stop = rules.get("stop") or {}
+    if stop.get("type") not in {"structure", "higher_low"}:
+        return None
+    lookback = int((rules.get("filters") or {}).get("swing_lookback") or DEFAULT_SWING_LOOKBACK)
+    setup = structure_setup_at(bars, i, lookback=lookback)
+    if not setup or setup.get("hl_low") is None:
+        return None
+    buffer_pct = float(stop.get("buffer_pct") or 0.0) / 100.0
+    level = float(setup["hl_low"]) * (1.0 - buffer_pct)
+    return level if level > 0 else None
+
+
 def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool], list[str]]:
     closes = [bar.close for bar in bars]
     e9, e21, rsi14, adx14 = ema(closes, 9), ema(closes, 21), rsi(closes), adx(bars)
@@ -826,8 +1037,10 @@ def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool
             pointer += 1
         htf_index.append(pointer if pointer >= 0 else None)
     filters = rules["filters"]
+    lookback = int(filters.get("swing_lookback") or DEFAULT_SWING_LOOKBACK)
+    structure_on = bool(filters.get("higher_low") or filters.get("break_swing_high"))
     signals, reasons = [False] * len(bars), [""] * len(bars)
-    warmup = max(200, int(filters.get("breakout_bars") or 0), 20)
+    warmup = max(200, int(filters.get("breakout_bars") or 0), lookback * 2 + 5, 20)
     for i in range(warmup, len(bars)):
         bar = bars[i]
         checks: list[tuple[bool, str]] = []
@@ -847,8 +1060,28 @@ def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool
             minimum = float(filters["adx_min"])
             checks.append((adx14[i] is not None and adx14[i] >= minimum, f"ADX14>={minimum:g}"))
         if filters.get("breakout_bars"):
-            lookback = int(filters["breakout_bars"])
-            checks.append((bar.close > max(x.high for x in bars[i - lookback:i]), f"close>prior {lookback}-bar high"))
+            n = int(filters["breakout_bars"])
+            checks.append((bar.close > max(x.high for x in bars[i - n:i]), f"close>prior {n}-bar high"))
+        if structure_on:
+            setup = structure_setup_at(bars, i, lookback=lookback)
+            if filters.get("higher_low"):
+                checks.append((bool(setup and setup.get("higher_low")), "confirmed higher low"))
+            if filters.get("break_swing_high"):
+                if setup is not None:
+                    checks.append(
+                        (
+                            bool(setup.get("break_swing_high")),
+                            f"close>prior swing high ({setup['swing_high']:.4g})",
+                        )
+                    )
+                else:
+                    # No HL pair yet — still require a broken prior swing high when possible.
+                    highs = _confirmed_swing_highs(bars, i, lookback)
+                    if highs:
+                        level = highs[-1][1]
+                        checks.append((bar.close > level, f"close>prior swing high ({level:.4g})"))
+                    else:
+                        checks.append((False, "close>prior swing high"))
         signals[i] = bool(checks) and all(passed for passed, _ in checks)
         if signals[i]:
             reasons[i] = "; ".join(label for _, label in checks)
@@ -916,12 +1149,26 @@ async def run_backtest(
     strategy = Strategy(hypothesis["id"], hypothesis["version"], hypothesis["name"], hypothesis["natural_language_prompt"])
     costs = Costs()
     atr_multiple = float(rules["stop"].get("atr_multiple", 1.0))
+    stop_type = str(rules["stop"].get("type") or "atr")
+    stop_prices: list[float | None] | None = None
+    if stop_type in {"structure", "higher_low"}:
+        stop_prices = [structure_stop_price(rules, bars, i) if signals[i] else None for i in range(len(bars))]
     # `bar_low` remains a transparent approximation in this MVP; its simulation
     # uses one ATR until a dedicated bar-low bracket model is added.
+    # Structure / higher_low stops use absolute HL lows via stop_prices.
     periods = {
-        "development": simulate(strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48, 200, dev_end, atr_multiple),
-        "oos": simulate(strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48, dev_end, oos_end, atr_multiple),
-        "paper": simulate(strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48, oos_end, len(bars), atr_multiple),
+        "development": simulate(
+            strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48,
+            200, dev_end, atr_multiple, stop_prices,
+        ),
+        "oos": simulate(
+            strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48,
+            dev_end, oos_end, atr_multiple, stop_prices,
+        ),
+        "paper": simulate(
+            strategy, bars, signals, reasons, float(rules["r_target"]), costs, 10_000, .005, 48,
+            oos_end, len(bars), atr_multiple, stop_prices,
+        ),
     }
     period_metrics = {period: metrics(trades) for period, trades in periods.items()}
     ran_at = datetime.now(timezone.utc)

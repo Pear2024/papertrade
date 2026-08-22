@@ -282,8 +282,8 @@ def signals_for(strategy: Strategy, bars: list[Candle], htf: list[Candle]) -> tu
     return out, reasons
 
 
-def simulate(strategy: Strategy, bars: list[Candle], signals: list[bool], reasons: list[str], r_target: float, costs: Costs, starting_equity: float, risk_fraction: float, max_hold: int, start_index: int = 200, end_index: int | None = None, atr_multiple: float = 1.0) -> list[Trade]:
-    """ATR-based raw-price stop, brackets active at next-open entry, SL first."""
+def simulate(strategy: Strategy, bars: list[Candle], signals: list[bool], reasons: list[str], r_target: float, costs: Costs, starting_equity: float, risk_fraction: float, max_hold: int, start_index: int = 200, end_index: int | None = None, atr_multiple: float = 1.0, stop_prices: list[float | None] | None = None) -> list[Trade]:
+    """ATR or absolute structure stop; brackets active at next-open entry; SL first."""
     atr14 = atr(bars)
     trades: list[Trade] = []
     end_index = end_index if end_index is not None else len(bars)
@@ -293,13 +293,21 @@ def simulate(strategy: Strategy, bars: list[Candle], signals: list[bool], reason
         # opening fictional microscopic positions.
         if equity <= 1e-8:
             break
-        if not signals[i] or atr14[i] is None:
+        structure_stop = stop_prices[i] if stop_prices and i < len(stop_prices) else None
+        if not signals[i]:
+            i += 1
+            continue
+        if structure_stop is None and atr14[i] is None:
             i += 1
             continue
         entry_i, entry_raw = i + 1, bars[i + 1].open
-        risk_distance = atr14[i] * atr_multiple  # frozen signal-bar ATR; never future data
-        stop_raw, target_raw = entry_raw - risk_distance, entry_raw + r_target * risk_distance
-        if stop_raw <= 0:
+        if structure_stop is not None:
+            stop_raw = float(structure_stop)
+        else:
+            risk_distance = atr14[i] * atr_multiple  # frozen signal-bar ATR; never future data
+            stop_raw = entry_raw - risk_distance
+        target_raw = entry_raw + r_target * (entry_raw - stop_raw)
+        if stop_raw <= 0 or stop_raw >= entry_raw:
             i += 1
             continue
         entry_fill = entry_raw * (1 + costs.impact_rate)

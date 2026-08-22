@@ -14,6 +14,13 @@ import { HypothesisBacktest, HypothesisLabAccess, HypothesisLabItem } from "@/li
 const EXAMPLE =
   "BTCUSDT 15m: buy when EMA9 is above EMA21, 1h close above EMA200, volume > 1.5x average, RSI 50-70, stop 1 ATR, target 2R";
 
+/** Higher-low + swing-high break (structure stop) — not Donchian N-bar breakout. */
+const STRUCTURE_HL_EXAMPLE =
+  "BTCUSDT 15m: long only when 1h close is above EMA200, EMA9 is above EMA21, " +
+  "price forms a confirmed higher low, then a 15m candle closes above the previous swing high, " +
+  "volume > 1.5x 20-bar average, stop below the confirmed higher low, target 2R. " +
+  "No entry before the breakout candle closes.";
+
 /** Matches apps/api TRADE_TO_LIVE_PROMPT — quality-first paper practice, not income claims. */
 const TRADE_TO_LIVE_TEMPLATE =
   "BTCUSDT 15m Trade-to-Live single setup: LONG only in a clear uptrend " +
@@ -209,14 +216,18 @@ export default function HypothesisLabPage() {
           <CardTitle>Describe a hypothesis</CardTitle>
           <CardDescription>
             Describe a hypothesis, for example: “EMA9 crosses above EMA21, volume 1.5x, RSI 50–70, ATR 1x stop, 2R target.”
-            EMAs mentioned in your prompt appear on the Market chart. Prefer WAIT / NO TRADE when the setup is incomplete —
-            quality over forced paper entries.
+            Structure setups are supported too: confirmed higher low → close above prior swing high, stop below the HL
+            (not a 20-bar Donchian breakout). EMAs mentioned in your prompt appear on the Market chart. Prefer WAIT /
+            NO TRADE when the setup is incomplete — quality over forced paper entries.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="secondary" size="sm" onClick={() => setPrompt(TRADE_TO_LIVE_TEMPLATE)}>
               Use Trade-to-Live template
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setPrompt(STRUCTURE_HL_EXAMPLE)}>
+              Use HL + swing break example
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => setPrompt(EXAMPLE)}>
               Use simple EMA example
