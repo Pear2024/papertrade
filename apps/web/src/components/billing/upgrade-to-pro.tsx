@@ -100,8 +100,8 @@ export function BillingPlanCard({
       <CardHeader>
         <CardTitle>Subscription</CardTitle>
         <CardDescription>
-          Free includes limited Lab backtests. Pro unlocks unlimited backtests and
-          paper-profile promotion.
+          Paper Lab testing is free for now. Pro billing coming later —
+          upgrades stay optional and do not block Save paper profile.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -139,7 +139,7 @@ export function BillingPlanCard({
               {status?.plan !== "pro" && status?.billing_enabled && <UpgradeToProButton />}
               {status?.plan !== "pro" && !status?.billing_enabled && (
                 <Button type="button" disabled>
-                  Upgrade unavailable
+                  Pro billing coming later
                 </Button>
               )}
               {status?.can_manage_billing && (

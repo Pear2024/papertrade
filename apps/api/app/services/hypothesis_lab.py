@@ -682,7 +682,7 @@ def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool
 
 
 def access_status(db: Session, owner_id: int, plan: str) -> dict[str, Any]:
-    """Free users receive a small daily quota; Pro unlocks promotion."""
+    """Paper path is Free-first while Stripe billing stays optional later."""
     today = datetime.now(timezone.utc).date()
     day_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
     used = db.scalar(
@@ -693,10 +693,14 @@ def access_status(db: Session, owner_id: int, plan: str) -> dict[str, Any]:
     ) or 0
     normalized_plan = "pro" if plan == "pro" else "free"
     return {
-        "plan": normalized_plan, "backtests_today": int(used),
-        "daily_backtest_limit": None if normalized_plan == "pro" else 3,
-        "can_promote": normalized_plan == "pro",
-        "upgrade_message": None if normalized_plan == "pro" else "Upgrade to Pro to unlock unlimited tests and paper-profile promotion.",
+        "plan": normalized_plan,
+        "backtests_today": int(used),
+        # Temporarily unlimited for Free so friends can paper-test without Stripe.
+        "daily_backtest_limit": None,
+        "can_promote": True,
+        "upgrade_message": None
+        if normalized_plan == "pro"
+        else "Pro billing coming later — paper testing is free for now.",
     }
 
 
@@ -708,8 +712,14 @@ async def run_backtest(
     bars_count: int = 3000,
 ) -> dict[str, Any]:
     status = access_status(db, owner_id, plan)
-    if status["daily_backtest_limit"] is not None and status["backtests_today"] >= status["daily_backtest_limit"]:
-        raise PermissionError("Free plan limit reached (3 backtests/day). Upgrade to Pro for unlimited backtests.")
+    if (
+        status["daily_backtest_limit"] is not None
+        and status["backtests_today"] >= status["daily_backtest_limit"]
+    ):
+        raise PermissionError(
+            f"Free plan limit reached ({status['daily_backtest_limit']} backtests/day). "
+            "Upgrade to Pro for unlimited backtests."
+        )
     hypothesis_row = _get_owned(db, owner_id, hypothesis_id)
     hypothesis = _hypothesis_to_dict(hypothesis_row)
     rules = hypothesis["structured_rules"]
@@ -758,8 +768,8 @@ async def run_backtest(
 
 
 def promote(db: Session, owner_id: int, plan: str, hypothesis_id: str) -> dict[str, Any]:
-    if plan != "pro":
-        raise PermissionError("Paper-profile promotion is a Pro feature. Upgrade to continue.")
+    # Free-first: any authenticated owner can save a paper profile for paper AUTO.
+    _ = plan
     hypothesis_row = _get_owned(db, owner_id, hypothesis_id)
     rules = _loads_json(hypothesis_row.structured_rules_json, _fresh_defaults())
     now = datetime.now(timezone.utc)

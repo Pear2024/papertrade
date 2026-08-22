@@ -10,7 +10,7 @@ Illustrations live in `apps/web/public/guide/`.
 - **Sign in** — register with email/password, or Google when enabled. Seeded demo (local): `demo@example.com` / `Demo1234!`.
 - **Starting cash** — new paper accounts default to **$20,000** simulated USD (editable in Settings; reset restores that balance).
 - **Your data stays yours** — Lab hypotheses, backtests, and Coach/AUTO preferences are stored **per account on the server** (MySQL). Other users cannot see or run your Lab profiles.
-- **Free vs Pro** — Free can generate versions and run a few backtests per day (3). **Pro is required to Save paper profile** (promote) so Market/Coach AUTO can use it. Pro also unlocks unlimited backtests.
+- **Free vs Pro** — Free can generate versions, run backtests, and **Save paper profile** (promote) for Market/Coach AUTO. Pro billing is optional later; paper testing is not gated on Stripe.
 - **AUTO is not 24/7 server-side** — ticks run in the **browser** on a timer while **Market** or **Coach** stays open. Closing the tab pauses AUTO.
 - **Lab backtests** apply ~**0.80% fee per fill** (plus small spread/slippage). A **REJECT** verdict is common and normal — it is not a bug.
 - **Chart EMAs** — periods from your Lab prompt (`chart_emas`) draw on the **Market** chart when that promoted profile is selected (visual context only).
@@ -22,7 +22,7 @@ English-only UI.
 
 Paper signals and AUTO use **Hypothesis Lab** profiles only:
 
-1. **Lab** — prompt → generate version → backtest → **Save paper profile (Pro)**
+1. **Lab** — prompt → generate version → backtest → **Save paper profile**
 2. **Settings** — interval, stake, leverage, SL/TP for AUTO risk (saved to your account)
 3. **Market** or **Coach** — choose the promoted profile, turn AUTO on, **keep the page open**
 4. Review in **Portfolio / History / Journal / Analytics**
@@ -94,7 +94,7 @@ AUTO evaluates closed candles and fills eligible longs at the next candle open.
 ![Lab](apps/web/public/guide/lab.svg)
 
 - **For:** Research hypotheses into immutable paper profiles (per account).  
-- **Do:** Prompt → Generate → Backtest (0.80% fees; REJECT is common) → Save paper profile (**Pro**). Use the **Trade-to-Live** template when you want a single high-quality setup (trend → S/R zones → closed-bar confirmation → RR ≥ 1:2). Incomplete setups should stay **WAIT / NO TRADE**.  
+- **Do:** Prompt → Generate → Backtest (0.80% fees; REJECT is common) → Save paper profile. Use the **Trade-to-Live** template when you want a single high-quality setup (trend → S/R zones → closed-bar confirmation → RR ≥ 1:2). Incomplete setups should stay **WAIT / NO TRADE**.  
 - **Connects:** Only promoted profiles drive Market/Coach AUTO. Chart EMAs from the prompt appear on Market when selected.
 
 ### Trading Analysis Assistant (paper practice)

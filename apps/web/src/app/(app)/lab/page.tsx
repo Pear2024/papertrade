@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { UpgradeToProButton } from "@/components/billing/upgrade-to-pro";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,13 +124,13 @@ function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: Hy
           <Button onClick={() => backtest.mutate()} disabled={backtest.isPending}>
             {backtest.isPending ? "Fetching candles & testing…" : "Backtest"}
           </Button>
-          <Button variant="outline" onClick={() => promote.mutate()} disabled={promote.isPending || !access?.can_promote}>
+          <Button variant="outline" onClick={() => promote.mutate()} disabled={promote.isPending || access?.can_promote === false}>
             {item.promoted_at ? "Paper profile saved" : "Save paper profile"}
           </Button>
         </div>
         {backtest.error && <p className="text-sm text-destructive">{(backtest.error as Error).message}</p>}
-        {!access?.can_promote && (
-          <p className="text-xs text-muted-foreground">Pro is required to save this paper profile.</p>
+        {access?.can_promote === false && (
+          <p className="text-xs text-muted-foreground">Saving this paper profile is temporarily unavailable.</p>
         )}
         {promote.isSuccess && (
           <Alert>
@@ -176,14 +175,13 @@ export default function HypothesisLabPage() {
           <CardTitle className="text-base">Lab plan: {access.data?.plan?.toUpperCase() ?? "…"}</CardTitle>
           <CardDescription>
             {access.data?.daily_backtest_limit == null
-              ? "Unlimited backtests and paper-profile promotion."
+              ? "Unlimited backtests and Save paper profile — free for paper testing."
               : `${access.data?.backtests_today ?? 0}/${access.data?.daily_backtest_limit ?? 3} free backtests used today.`}
           </CardDescription>
         </CardHeader>
         {access.data?.upgrade_message && (
           <CardContent className="space-y-3 pt-0">
             <p className="text-sm text-muted-foreground">{access.data.upgrade_message}</p>
-            <UpgradeToProButton size="sm" />
           </CardContent>
         )}
       </Card>

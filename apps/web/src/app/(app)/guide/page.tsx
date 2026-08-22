@@ -106,11 +106,11 @@ const SECTIONS: GuideSection[] = [
     title: "Lab",
     image: "/guide/lab.svg",
     purpose:
-      "Hypothesis Lab: describe rules in plain English, generate an immutable version, backtest with fees, then save a paper profile (Pro). Hypotheses are private to your account. Optional Trade-to-Live template favors WAIT/NO TRADE unless trend, zone confirmation, and RR ≥ 1:2 are present.",
+      "Hypothesis Lab: describe rules in plain English, generate an immutable version, backtest with fees, then save a paper profile. Hypotheses are private to your account. Optional Trade-to-Live template favors WAIT/NO TRADE unless trend, zone confirmation, and RR ≥ 1:2 are present.",
     actions: [
       "Write a prompt (symbol, interval, entries, filters, stop/target). Or click Use Trade-to-Live template for a single high-quality long setup.",
       "Generate a testable version, then Backtest (≈0.80% fee per fill). REJECT is common and expected.",
-      "Save paper profile (promote) on Pro when you want AUTO to use it. Free plans are limited to a few backtests per day.",
+      "Save paper profile (promote) when you want AUTO to use it. Paper testing is free for now; Pro billing coming later.",
     ],
     connects:
       "Only promoted Lab profiles drive Market/Coach paper AUTO. Other users cannot see your Lab work. Assistant rules prefer quality over forced entries.",
@@ -184,7 +184,7 @@ export default function GuidePage() {
         <AlertTitle>Lab-first paper AUTO</AlertTitle>
         <AlertDescription>
           Paper signals and AUTO use Hypothesis Lab profiles only. Prompt → backtest → Save paper
-          profile (Pro) → turn AUTO on in Market or Coach and leave the tab open. Prefer WAIT / NO
+          profile → turn AUTO on in Market or Coach and leave the tab open. Prefer WAIT / NO
           TRADE when a setup is incomplete — quality over forced entries (see Trading Analysis Assistant).
         </AlertDescription>
       </Alert>
@@ -208,7 +208,7 @@ export default function GuidePage() {
               <Link href="/lab" className="font-medium text-foreground underline-offset-4 hover:underline">
                 Lab
               </Link>
-              : describe rules, generate a version, backtest, Save paper profile (Pro).
+              : describe rules, generate a version, backtest, Save paper profile.
             </li>
             <li>
               <Link href="/settings" className="font-medium text-foreground underline-offset-4 hover:underline">
@@ -300,8 +300,8 @@ export default function GuidePage() {
             users.
           </p>
           <p>
-            Free: limited backtests/day. Pro: unlimited backtests and Save paper profile (required for
-            AUTO).
+            Free: unlimited Lab backtests and Save paper profile for paper testing. Pro billing
+            coming later (optional; not required for AUTO).
           </p>
           <p>
             AUTO evaluates closed candles and fills eligible longs at the next candle open. Leave
