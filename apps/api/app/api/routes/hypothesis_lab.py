@@ -62,6 +62,18 @@ def get_hypothesis(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.delete("/{hypothesis_id}", status_code=204)
+def delete_hypothesis(
+    hypothesis_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        hypothesis_lab.delete_hypothesis(db, current_user.id, hypothesis_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/{hypothesis_id}/backtest")
 async def backtest_hypothesis(
     hypothesis_id: str,

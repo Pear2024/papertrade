@@ -319,6 +319,10 @@ export const api = {
     apiFetch<HypothesisLabItem>(`/hypothesis-lab/${encodeURIComponent(id)}/promote`, {
       method: "POST",
     }, true),
+  deleteHypothesis: (id: string) =>
+    apiFetch<void>(`/hypothesis-lab/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }, true),
   billingStatus: () => apiFetch<BillingStatus>("/billing/status", {}, true),
   createCheckoutSession: (payload?: { success_url?: string; cancel_url?: string }) =>
     apiFetch<CheckoutSessionResponse>(

@@ -805,6 +805,13 @@ def get_hypothesis(db: Session, owner_id: int, hypothesis_id: str) -> dict[str, 
     return _hypothesis_to_dict(_get_owned(db, owner_id, hypothesis_id))
 
 
+def delete_hypothesis(db: Session, owner_id: int, hypothesis_id: str) -> None:
+    """Hard-delete an owned hypothesis and its backtests (cascade)."""
+    row = _get_owned(db, owner_id, hypothesis_id)
+    db.delete(row)
+    db.commit()
+
+
 def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool], list[str]]:
     closes = [bar.close for bar in bars]
     e9, e21, rsi14, adx14 = ema(closes, 9), ema(closes, 21), rsi(closes), adx(bars)

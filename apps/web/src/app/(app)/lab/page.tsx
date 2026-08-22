@@ -103,6 +103,13 @@ function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: Hy
     mutationFn: () => api.promoteHypothesis(item.id),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["hypothesis-lab"] }),
   });
+  const remove = useMutation({
+    mutationFn: () => api.deleteHypothesis(item.id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["hypothesis-lab"] });
+      void queryClient.invalidateQueries({ queryKey: ["hypothesis-lab-access"] });
+    },
+  });
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -121,14 +128,26 @@ function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: Hy
         )}
         <pre className="max-h-56 overflow-auto rounded border bg-muted/30 p-3 text-xs">{JSON.stringify(item.structured_rules, null, 2)}</pre>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => backtest.mutate()} disabled={backtest.isPending}>
+          <Button onClick={() => backtest.mutate()} disabled={backtest.isPending || remove.isPending}>
             {backtest.isPending ? "Fetching candles & testing…" : "Backtest"}
           </Button>
-          <Button variant="outline" onClick={() => promote.mutate()} disabled={promote.isPending || access?.can_promote === false}>
+          <Button variant="outline" onClick={() => promote.mutate()} disabled={promote.isPending || remove.isPending || access?.can_promote === false}>
             {item.promoted_at ? "Paper profile saved" : "Save paper profile"}
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              if (window.confirm(`Delete “${item.name}” v${item.version}? This cannot be undone.`)) {
+                remove.mutate();
+              }
+            }}
+            disabled={remove.isPending}
+          >
+            {remove.isPending ? "Deleting…" : "Delete"}
           </Button>
         </div>
         {backtest.error && <p className="text-sm text-destructive">{(backtest.error as Error).message}</p>}
+        {remove.error && <p className="text-sm text-destructive">{(remove.error as Error).message}</p>}
         {access?.can_promote === false && (
           <p className="text-xs text-muted-foreground">Saving this paper profile is temporarily unavailable.</p>
         )}

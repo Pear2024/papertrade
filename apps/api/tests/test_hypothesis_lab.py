@@ -349,6 +349,21 @@ def test_hypothesis_lab_owner_isolation(
     assert promoted_b == []
     assert user_a.id != user_b.id
 
+    delete_b = client.delete(f"/hypothesis-lab/{hyp_id}", headers=header_b)
+    assert delete_b.status_code == 404
+    assert any(
+        item["id"] == hyp_id
+        for item in client.get("/hypothesis-lab", headers=header_a).json()["items"]
+    )
+
+    delete_a = client.delete(f"/hypothesis-lab/{hyp_id}", headers=header_a)
+    assert delete_a.status_code == 204
+    assert all(
+        item["id"] != hyp_id
+        for item in client.get("/hypothesis-lab", headers=header_a).json()["items"]
+    )
+    assert client.get(f"/hypothesis-lab/{hyp_id}", headers=header_a).status_code == 404
+
 
 def test_coach_settings_are_per_user(
     client: TestClient,
