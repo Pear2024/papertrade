@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, PauseCircle, PlayCircle, Zap } from "lucide-react";
 import Link from "next/link";
@@ -17,6 +17,7 @@ import { useAutoSession, useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
 import { coachSettingsToApiParams } from "@/lib/coach-settings";
 import { formatMoney } from "@/lib/format";
+import { formatLabProfileLabel, labProfileNumbers } from "@/lib/lab-profile-label";
 import { resolveSlTpPct } from "@/lib/sl-tp";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -50,6 +51,10 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
     staleTime: 30_000,
   });
   const promotedLab = (labQuery.data?.items ?? []).filter((item) => item.promoted_at);
+  const profileNumbers = useMemo(
+    () => labProfileNumbers(labQuery.data?.items ?? []),
+    [labQuery.data?.items],
+  );
   const activeLab =
     promotedLab.find((item) => item.id === settings.labHypothesisId) ?? promotedLab[0];
 
@@ -277,7 +282,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
                 <SelectContent>
                   {promotedLab.map((item) => (
                     <SelectItem key={item.id} value={item.id}>
-                      {item.name} v{item.version}
+                      {formatLabProfileLabel(item, profileNumbers.get(item.id) ?? null)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -290,8 +295,11 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
           </div>
           {activeLab && (
             <p className="text-xs text-muted-foreground">
-              Active: {activeLab.name} · {activeLab.id} v{activeLab.version} · closed signal bar,
-              next candle open.
+              Active:{" "}
+              {activeLab
+                ? formatLabProfileLabel(activeLab, profileNumbers.get(activeLab.id) ?? null)
+                : "—"}{" "}
+              · closed signal bar, next candle open.
             </p>
           )}
         </CardHeader>
@@ -365,7 +373,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
                 {hasPosition
                   ? `${statusLabel} open — hold until SL/TP (no flip)`
                   : activeLab
-                    ? `FLAT — Lab (${activeLab.name} v${activeLab.version}) opens LONG on closed-bar signal`
+                    ? `FLAT — Lab (${formatLabProfileLabel(activeLab, profileNumbers.get(activeLab.id) ?? null, { includeVersion: false })}) opens LONG on closed-bar signal`
                     : "FLAT — promote a Lab profile first"}
               </p>
             </div>

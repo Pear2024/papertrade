@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 
@@ -14,6 +15,7 @@ import { useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
 import { coachSettingsToApiParams } from "@/lib/coach-settings";
 import { formatMoney } from "@/lib/format";
+import { formatLabProfileLabel, labProfileNumbers } from "@/lib/lab-profile-label";
 import { CandleInterval } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -43,6 +45,10 @@ export function CoachSignalPanel({
     staleTime: 30_000,
   });
   const promotedLab = (labQuery.data?.items ?? []).filter((item) => item.promoted_at);
+  const profileNumbers = useMemo(
+    () => labProfileNumbers(labQuery.data?.items ?? []),
+    [labQuery.data?.items],
+  );
   const activeLab =
     promotedLab.find((item) => item.id === settings.labHypothesisId) ?? promotedLab[0];
 
@@ -148,7 +154,7 @@ export function CoachSignalPanel({
               <SelectContent>
                 {promotedLab.map((item) => (
                   <SelectItem key={item.id} value={item.id}>
-                    {item.name} v{item.version}
+                    {formatLabProfileLabel(item, profileNumbers.get(item.id) ?? null)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -196,7 +202,9 @@ export function CoachSignalPanel({
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Confidence: <strong>{data.confidence}%</strong>
-                  {activeLab ? ` · ${activeLab.name} v${activeLab.version}` : ""}
+                  {activeLab
+                    ? ` · ${formatLabProfileLabel(activeLab, profileNumbers.get(activeLab.id) ?? null)}`
+                    : ""}
                 </p>
               </div>
               <div className="text-right text-sm">

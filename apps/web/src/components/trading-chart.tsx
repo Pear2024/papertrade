@@ -29,6 +29,7 @@ import {
   chartEmasFromRules,
   emaColor,
 } from "@/lib/lab-chart-emas";
+import { formatLabProfileLabel, labProfileNumbers } from "@/lib/lab-profile-label";
 import { CandleInterval } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -111,6 +112,17 @@ export function TradingChart({
     const promoted = (labQuery.data?.items ?? []).filter((item) => item.promoted_at);
     return promoted.find((item) => item.id === settings.labHypothesisId) ?? promoted[0] ?? null;
   }, [labQuery.data, settings.labHypothesisId]);
+  const profileNumbers = useMemo(
+    () => labProfileNumbers(labQuery.data?.items ?? []),
+    [labQuery.data?.items],
+  );
+  const activeLabLabel = useMemo(
+    () =>
+      activeLab
+        ? formatLabProfileLabel(activeLab, profileNumbers.get(activeLab.id) ?? null)
+        : null,
+    [activeLab, profileNumbers],
+  );
 
   const emaPeriods = useMemo(
     () => chartEmasFromRules(activeLab?.structured_rules ?? null),
@@ -184,9 +196,9 @@ export function TradingChart({
       entryPrice: Number(pos?.average_entry_price ?? current),
       currentPrice: current,
       entryTimeSec: Math.floor(Date.now() / 1000) - 60,
-      note: activeLab ? `Lab ${activeLab.name} v${activeLab.version}` : "Lab paper position",
+      note: activeLabLabel ? `Lab ${activeLabLabel}` : "Lab paper position",
     };
-  }, [candleSeries, positionQuery.data, activeLab]);
+  }, [candleSeries, positionQuery.data, activeLabLabel]);
 
   const chartMarkers = useMemo(() => {
     const candleTimes = new Set(candleSeries.map((c) => c.time));
@@ -388,8 +400,8 @@ export function TradingChart({
             {symbol}/USDT
           </span>
           <span className="text-[11px]" style={{ color: TV.muted }}>
-            {activeLab
-              ? `Lab · ${activeLab.name} v${activeLab.version} · AUTO on Market/Coach`
+            {activeLabLabel
+              ? `Lab · ${activeLabLabel} · AUTO on Market/Coach`
               : "Lab · promote a profile to run paper AUTO"}
           </span>
         </div>

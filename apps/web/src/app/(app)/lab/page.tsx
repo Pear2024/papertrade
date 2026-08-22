@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { chartEmasFromRules } from "@/lib/lab-chart-emas";
+import { formatLabProfileLabel, labProfileNumbers } from "@/lib/lab-profile-label";
 import { HypothesisBacktest, HypothesisLabAccess, HypothesisLabItem } from "@/lib/types";
 
 const EXAMPLE =
@@ -93,7 +94,15 @@ function BacktestResult({ result }: { result: HypothesisBacktest }) {
   );
 }
 
-function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: HypothesisLabAccess }) {
+function HypothesisCard({
+  item,
+  profileNumber,
+  access,
+}: {
+  item: HypothesisLabItem;
+  profileNumber: number;
+  access?: HypothesisLabAccess;
+}) {
   const queryClient = useQueryClient();
   const [lastResult, setLastResult] = useState<HypothesisBacktest | null>(
     item.backtests[item.backtests.length - 1] ?? null,
@@ -121,7 +130,15 @@ function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: Hy
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-lg">
-          <span>{item.name} <span className="text-xs font-normal text-muted-foreground">v{item.version}</span></span>
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md bg-primary/10 px-2 py-0.5 text-sm font-semibold tabular-nums text-primary">
+              #{profileNumber}
+            </span>
+            <span>
+              {item.name}{" "}
+              <span className="text-xs font-normal text-muted-foreground">v{item.version}</span>
+            </span>
+          </span>
           <ParserBadge parser={item.parser} />
         </CardTitle>
         <CardDescription>{item.natural_language_prompt || "Structured rule set"}</CardDescription>
@@ -144,7 +161,11 @@ function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: Hy
           <Button
             variant="destructive"
             onClick={() => {
-              if (window.confirm(`Delete “${item.name}” v${item.version}? This cannot be undone.`)) {
+              if (
+                window.confirm(
+                  `Delete profile #${profileNumber} “${item.name}” v${item.version}? This cannot be undone.`,
+                )
+              ) {
                 remove.mutate();
               }
             }}
@@ -242,9 +263,29 @@ export default function HypothesisLabPage() {
       </Card>
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">Your versions</h2>
-        {list.isLoading ? <Skeleton className="h-48 w-full" /> : list.data?.items.length ? (
-          list.data.items.map((item) => <HypothesisCard key={item.id} item={item} access={access.data} />)
-        ) : <p className="text-sm text-muted-foreground">Create a hypothesis to see its structured rules and backtest results.</p>}
+        <p className="text-xs text-muted-foreground">
+          Profiles are numbered #1, #2, … by creation time (oldest first). The same number appears in
+          Market when you choose a paper profile.
+        </p>
+        {list.isLoading ? (
+          <Skeleton className="h-48 w-full" />
+        ) : list.data?.items.length ? (
+          (() => {
+            const numbers = labProfileNumbers(list.data.items);
+            return list.data.items.map((item) => (
+              <HypothesisCard
+                key={item.id}
+                item={item}
+                profileNumber={numbers.get(item.id) ?? 0}
+                access={access.data}
+              />
+            ));
+          })()
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Create a hypothesis to see its structured rules and backtest results.
+          </p>
+        )}
       </div>
     </div>
   );
