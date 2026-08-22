@@ -131,6 +131,7 @@ export function SignalAutoCard({ symbol = "BTC", className }: Props) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["coach-signal", symbol, interval] }),
         queryClient.invalidateQueries({ queryKey: ["coach-signal-history", symbol, interval] }),
+        queryClient.invalidateQueries({ queryKey: ["trades", symbol] }),
         queryClient.invalidateQueries({ queryKey: ["position", symbol] }),
         queryClient.invalidateQueries({ queryKey: ["account-summary"] }),
         queryClient.invalidateQueries({ queryKey: ["coach-stats"] }),

@@ -495,6 +495,97 @@ function resolveCoachMarkerPhase(item: CoachSignalHistoryItem): string | null {
   return phase;
 }
 
+const INTERVAL_SECONDS: Record<string, number> = {
+  "1m": 60,
+  "5m": 300,
+  "15m": 900,
+  "1h": 3600,
+  "4h": 14400,
+  "1d": 86400,
+};
+
+/** Map signal/trade time to a loaded candle open (exact or nearest within one bar). */
+export function snapTimeToCandles(
+  time: number,
+  candleTimes: number[],
+  interval: string,
+): number | null {
+  if (!candleTimes.length || !time) return null;
+  const set = new Set(candleTimes);
+  if (set.has(time)) return time;
+  const step = INTERVAL_SECONDS[interval] ?? 900;
+  const floored = Math.floor(time / step) * step;
+  if (set.has(floored)) return floored;
+  let best = candleTimes[0];
+  let bestDist = Math.abs(time - best);
+  for (const t of candleTimes) {
+    const dist = Math.abs(time - t);
+    if (dist < bestDist) {
+      best = t;
+      bestDist = dist;
+    }
+  }
+  return bestDist <= step ? best : null;
+}
+
+export function alignMarkersToCandles(
+  markers: StoryChartMarker[],
+  candleTimes: number[],
+  interval: string,
+): StoryChartMarker[] {
+  const seen = new Set<string>();
+  const aligned: StoryChartMarker[] = [];
+  for (const marker of markers) {
+    const time = snapTimeToCandles(marker.time, candleTimes, interval);
+    if (time == null) continue;
+    const key = `${time}:${marker.text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    aligned.push({ ...marker, time });
+  }
+  return aligned.sort((a, b) => a.time - b.time);
+}
+
+/** Filled paper BUY trades → ENTRY BUY markers when coach history is sparse. */
+export function buildTradeEntryMarkers(
+  trades: { symbol: string; side: string; executed_at: string }[],
+  symbol: string,
+  candleTimes: number[],
+  interval: string,
+): StoryChartMarker[] {
+  const sym = symbol.toUpperCase();
+  const markers: StoryChartMarker[] = [];
+  for (const trade of trades) {
+    if (trade.symbol.toUpperCase() !== sym) continue;
+    if (trade.side.toLowerCase() !== "buy") continue;
+    const ts = Math.floor(new Date(trade.executed_at).getTime() / 1000);
+    const time = snapTimeToCandles(ts, candleTimes, interval);
+    if (time == null) continue;
+    markers.push({
+      time,
+      position: "belowBar",
+      color: "#00e676",
+      shape: "circle",
+      text: "ENTRY BUY",
+    });
+  }
+  return markers;
+}
+
+function mergeMarkerLists(...lists: StoryChartMarker[][]): StoryChartMarker[] {
+  const seen = new Set<string>();
+  const merged: StoryChartMarker[] = [];
+  for (const list of lists) {
+    for (const marker of list) {
+      const key = `${marker.time}:${marker.text}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(marker);
+    }
+  }
+  return merged.sort((a, b) => a.time - b.time);
+}
+
 /** Lab AUTO persisted signals → chart ENTRY/EXIT markers (evaluated_bar_time = candle open). */
 export function buildCoachHistoryMarkers(
   items: CoachSignalHistoryItem[],
@@ -522,15 +613,21 @@ export function buildCoachHistoryMarkers(
 export function mergeLiveCoachSignalMarker(
   markers: StoryChartMarker[],
   signal: Pick<CoachSignal, "evaluated_bar_time" | "phase" | "entry"> | null | undefined,
+  candleTimes: number[] = [],
+  interval = "15m",
 ): StoryChartMarker[] {
   if (!signal?.evaluated_bar_time) return markers;
   const phase = signal.phase ?? signal.entry ?? "";
   if (!phase || phase === "NONE") return markers;
-  const time = signal.evaluated_bar_time;
-  if (markers.some((m) => m.time === time)) return markers;
+  const rawTime = signal.evaluated_bar_time;
+  const time =
+    candleTimes.length > 0
+      ? snapTimeToCandles(rawTime, candleTimes, interval) ?? rawTime
+      : rawTime;
+  if (markers.some((m) => m.time === time && m.text.includes("ENTRY"))) return markers;
   const marker = coachPhaseMarker(phase, time);
   if (!marker) return markers;
-  return [...markers, marker].sort((a, b) => a.time - b.time);
+  return mergeMarkerLists(markers, [marker]);
 }
 
 /**

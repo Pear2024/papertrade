@@ -21,7 +21,9 @@ import { api } from "@/lib/api";
 import { coachSettingsToApiParams } from "@/lib/coach-settings";
 import { computeEma } from "@/lib/ema";
 import {
+  alignMarkersToCandles,
   buildCoachHistoryMarkers,
+  buildTradeEntryMarkers,
   mergeLiveCoachSignalMarker,
 } from "@/lib/ema-signals";
 import { formatMoney } from "@/lib/format";
@@ -137,7 +139,13 @@ export function TradingChart({
 
   const historyQuery = useQuery({
     queryKey: ["coach-signal-history", symbol, interval],
-    queryFn: () => api.coachSignalHistory({ symbol, interval, limit: 500 }),
+    queryFn: () => api.coachSignalHistory({ symbol, interval, entryOnly: true, limit: 500 }),
+    refetchInterval: 30_000,
+  });
+
+  const tradesQuery = useQuery({
+    queryKey: ["trades", symbol],
+    queryFn: () => api.trades(),
     refetchInterval: 30_000,
   });
 
@@ -201,11 +209,22 @@ export function TradingChart({
   }, [candleSeries, positionQuery.data, activeLabLabel]);
 
   const chartMarkers = useMemo(() => {
-    const candleTimes = new Set(candleSeries.map((c) => c.time));
+    const candleTimes = candleSeries.map((c) => c.time);
     const fromHistory = buildCoachHistoryMarkers(historyQuery.data?.items ?? []);
-    const merged = mergeLiveCoachSignalMarker(fromHistory, signalQuery.data);
-    return merged.filter((m) => candleTimes.has(m.time));
-  }, [candleSeries, historyQuery.data, signalQuery.data]);
+    const fromTrades = buildTradeEntryMarkers(
+      tradesQuery.data ?? [],
+      symbol,
+      candleTimes,
+      interval,
+    );
+    const merged = mergeLiveCoachSignalMarker(
+      [...fromHistory, ...fromTrades],
+      signalQuery.data,
+      candleTimes,
+      interval,
+    );
+    return alignMarkersToCandles(merged, candleTimes, interval);
+  }, [candleSeries, historyQuery.data, tradesQuery.data, signalQuery.data, symbol, interval]);
 
   useEffect(() => {
     const el = containerRef.current;
