@@ -214,6 +214,11 @@ export function CoachSignalPanel({
                 {data.short_reason && data.short_reason !== data.reason ? (
                   <span className="mt-2 block text-xs text-muted-foreground">{data.reason}</span>
                 ) : null}
+                {data.signal === "WAIT" ? (
+                  <span className="mt-2 block text-xs text-muted-foreground">
+                    Quality over quantity: WAIT / NO TRADE is correct when trend, confirmation, or RR ≥ 1:2 is missing.
+                  </span>
+                ) : null}
               </AlertDescription>
             </Alert>
 

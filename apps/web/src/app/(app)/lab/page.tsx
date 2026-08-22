@@ -12,7 +12,25 @@ import { api } from "@/lib/api";
 import { chartEmasFromRules } from "@/lib/lab-chart-emas";
 import { HypothesisBacktest, HypothesisLabAccess, HypothesisLabItem } from "@/lib/types";
 
-const EXAMPLE = "BTCUSDT 15m: buy when EMA9 is above EMA21, 1h close above EMA200, volume > 1.5x average, RSI 50-70, stop 1 ATR, target 2R";
+const EXAMPLE =
+  "BTCUSDT 15m: buy when EMA9 is above EMA21, 1h close above EMA200, volume > 1.5x average, RSI 50-70, stop 1 ATR, target 2R";
+
+/** Matches apps/api TRADE_TO_LIVE_PROMPT — quality-first paper practice, not income claims. */
+const TRADE_TO_LIVE_TEMPLATE =
+  "BTCUSDT 15m Trade-to-Live single setup: LONG only in a clear uptrend " +
+  "(EMA9 above EMA21 and close above EMA9; 1h close above EMA200). " +
+  "Treat support/resistance as zones — never enter only because price touches a level. " +
+  "Confirm on the closed 15m bar (bullish rejection / reclaim of EMA9, buyers defending the zone, " +
+  "volume at least 1.5x). ATR 1x stop below structure; take profit at least 2R (prefer 2.5–3R). " +
+  "If trend is unclear, no closed-bar confirmation, or RR below 1:2 → WAIT / NO TRADE. " +
+  "Quality over quantity (~1–3 high-quality paper setups per week).";
+
+function assistantBadge(rules: Record<string, unknown>): string | null {
+  const assistant = rules.assistant as Record<string, unknown> | undefined;
+  if (!assistant || assistant.philosophy !== "trade_to_live") return null;
+  const minRr = typeof assistant.min_rr === "number" ? assistant.min_rr : 2;
+  return `Trade-to-Live · WAIT unless RR ≥ 1:${minRr} · closed-bar confirmation`;
+}
 
 function MetricRow({ label, value }: { label: string; value: string | number | null | undefined }) {
   return <div className="flex justify-between gap-4 border-b py-1 text-sm"><span className="text-muted-foreground">{label}</span><span>{value ?? "—"}</span></div>;
@@ -97,6 +115,11 @@ function HypothesisCard({ item, access }: { item: HypothesisLabItem; access?: Hy
       </CardHeader>
       <CardContent className="space-y-4">
         <ChartEmaBadge rules={item.structured_rules} />
+        {assistantBadge(item.structured_rules) && (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+            {assistantBadge(item.structured_rules)}
+          </p>
+        )}
         <pre className="max-h-56 overflow-auto rounded border bg-muted/30 p-3 text-xs">{JSON.stringify(item.structured_rules, null, 2)}</pre>
         <div className="flex flex-wrap gap-2">
           <Button onClick={() => backtest.mutate()} disabled={backtest.isPending}>
@@ -169,10 +192,19 @@ export default function HypothesisLabPage() {
           <CardTitle>Describe a hypothesis</CardTitle>
           <CardDescription>
             Describe a hypothesis, for example: “EMA9 crosses above EMA21, volume 1.5x, RSI 50–70, ATR 1x stop, 2R target.”
-            EMAs mentioned in your prompt appear on the Market chart.
+            EMAs mentioned in your prompt appear on the Market chart. Prefer WAIT / NO TRADE when the setup is incomplete —
+            quality over forced paper entries.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => setPrompt(TRADE_TO_LIVE_TEMPLATE)}>
+              Use Trade-to-Live template
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setPrompt(EXAMPLE)}>
+              Use simple EMA example
+            </Button>
+          </div>
           <textarea className="min-h-28 w-full rounded-md border bg-background p-3 text-sm" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
           <Button onClick={() => create.mutate()} disabled={!prompt.trim() || create.isPending}>
             {create.isPending ? "Generating…" : "Generate testable version"}

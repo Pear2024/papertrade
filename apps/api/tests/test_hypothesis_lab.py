@@ -39,6 +39,28 @@ def test_parser_maps_thai_template() -> None:
     assert rules["chart_emas"] == [9, 21]
 
 
+def test_trade_to_live_template_sets_assistant_and_min_rr() -> None:
+    rules = parse_prompt(hypothesis_lab.TRADE_TO_LIVE_PROMPT)
+    assert rules["assistant"]["philosophy"] == "trade_to_live"
+    assert rules["assistant"]["prefer_wait"] is True
+    assert rules["assistant"]["min_rr"] >= 2.0
+    assert rules["assistant"]["require_ltf_confirmation"] is True
+    assert rules["filters"]["ema_trend"] is True
+    assert rules["filters"]["htf_ema200"] is True
+    assert rules["filters"]["volume_multiple"] == 1.5
+    assert rules["r_target"] >= 2.0
+    assert 9 in rules["chart_emas"] and 21 in rules["chart_emas"] and 200 in rules["chart_emas"]
+
+
+def test_normalize_enforces_assistant_min_rr() -> None:
+    rules = hypothesis_lab.normalize_rules({
+        "r_target": 1.5,
+        "assistant": {"philosophy": "trade_to_live", "min_rr": 2.0},
+    })
+    assert rules["r_target"] == 2.0
+    assert rules["assistant"]["philosophy"] == "trade_to_live"
+
+
 def test_parser_extracts_custom_chart_ema_periods() -> None:
     rules = parse_prompt(
         "BTCUSDT draw EMA 12 and 26 on the chart, volume 1.5x, stop ATR 1x, 2R",

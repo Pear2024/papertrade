@@ -31,6 +31,15 @@ from app.research.experiment_engine.runner import (
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_ROOT = ROOT / "research_outputs" / "hypothesis_lab"
 STORE_PATH = OUTPUT_ROOT / "hypotheses.json"
+# Paper practice philosophy: quality setups only; WAIT/NO TRADE when incomplete.
+ASSISTANT_DEFAULT: dict[str, Any] = {
+    "philosophy": None,  # "trade_to_live" when template/keywords apply
+    "prefer_wait": True,
+    "min_rr": 2.0,
+    "max_trades_per_week_hint": 3,
+    "require_ltf_confirmation": True,
+    "steps": ["trend", "sr_zones", "confirmation", "risk_reward", "decision"],
+}
 DEFAULT_RULES: dict[str, Any] = {
     "symbol": "BTCUSDT", "interval": "15m", "htf": "1h",
     "filters": {"ema_trend": True, "htf_ema200": False, "volume_multiple": None,
@@ -38,7 +47,18 @@ DEFAULT_RULES: dict[str, Any] = {
     "stop": {"type": "atr", "atr_multiple": 1.0}, "r_target": 2.0,
     # Chart overlay periods (visual only). Empty → Market chart falls back to 9+21.
     "chart_emas": [],
+    "assistant": dict(ASSISTANT_DEFAULT),
 }
+# Ready-made Lab prompt (English). Practice goals only — not income promises.
+TRADE_TO_LIVE_PROMPT = (
+    "BTCUSDT 15m Trade-to-Live single setup: LONG only in a clear uptrend "
+    "(EMA9 above EMA21 and close above EMA9; 1h close above EMA200). "
+    "Treat support/resistance as zones — never enter only because price touches a level. "
+    "Confirm on the closed 15m bar (bullish rejection / reclaim of EMA9, buyers defending the zone, "
+    "volume at least 1.5x). ATR 1x stop below structure; take profit at least 2R (prefer 2.5–3R). "
+    "If trend is unclear, no closed-bar confirmation, or RR below 1:2 → WAIT / NO TRADE. "
+    "Quality over quantity (~1–3 high-quality paper setups per week)."
+)
 SUPPORTED_SYMBOLS = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT"}
 SUPPORTED_INTERVALS = {"1m", "5m", "15m", "1h", "4h", "1d"}
 SUPPORTED_HTF_INTERVALS = {"1h", "4h", "1d"}
@@ -54,7 +74,10 @@ new rules. Return only this supported shape:
 {"symbol":"BTCUSDT","interval":"15m","htf":"1h","filters":{"ema_trend":true,
 "htf_ema200":false,"volume_multiple":null,"rsi_min":null,"rsi_max":null,
 "adx_min":null,"breakout_bars":null},"stop":{"type":"atr","atr_multiple":1.0},
-"r_target":2.0,"chart_emas":[9,21]}
+"r_target":2.0,"chart_emas":[9,21],
+"assistant":{"philosophy":null,"prefer_wait":true,"min_rr":2.0,
+"max_trades_per_week_hint":3,"require_ltf_confirmation":true,
+"steps":["trend","sr_zones","confirmation","risk_reward","decision"]}}
 Supported symbols: BTCUSDT, ETHUSDT, SOLUSDT, XRPUSDT, BNBUSDT, ADAUSDT.
 Intervals: 1m, 5m, 15m, 1h, 4h, 1d. HTF intervals: 1h, 4h, 1d.
 Use only EMA trend, HTF EMA200, volume multiple, RSI min/max, ADX minimum,
@@ -62,6 +85,9 @@ breakout bars, stop type atr or bar_low, R targets 1.5, 2, 2.5, or 3, and
 chart_emas (up to 5 distinct periods 2–500 for Market chart overlays).
 When the user mentions EMA periods (e.g. EMA9, EMA 50, EMA200), include them in
 chart_emas. If ema_trend is true include 9 and 21; if htf_ema200 is true include 200.
+If the prompt mentions Trade-to-Live, single setup, quality over quantity, WAIT/NO TRADE,
+or min RR 1:2, set assistant.philosophy to "trade_to_live", prefer_wait true, min_rr 2.0,
+and r_target to at least 2.0. Never invent trades when filters are incomplete.
 Leave unspecified values at the defaults shown above."""
 
 
@@ -191,6 +217,27 @@ def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | Non
         if "chart_emas" in source:
             normalized["chart_emas"] = normalize_ema_periods(source.get("chart_emas"))
 
+        assistant = source.get("assistant")
+        if isinstance(assistant, dict):
+            out_assistant = dict(normalized.get("assistant") or ASSISTANT_DEFAULT)
+            philosophy = assistant.get("philosophy")
+            if philosophy in {None, "trade_to_live"}:
+                out_assistant["philosophy"] = philosophy
+            if isinstance(assistant.get("prefer_wait"), bool):
+                out_assistant["prefer_wait"] = assistant["prefer_wait"]
+            min_rr = _number(assistant.get("min_rr"), 1.0, 10.0)
+            if min_rr is not None:
+                out_assistant["min_rr"] = float(min_rr)
+            week_hint = _number(assistant.get("max_trades_per_week_hint"), 1, 20)
+            if week_hint is not None:
+                out_assistant["max_trades_per_week_hint"] = int(round(week_hint))
+            if isinstance(assistant.get("require_ltf_confirmation"), bool):
+                out_assistant["require_ltf_confirmation"] = assistant["require_ltf_confirmation"]
+            steps = assistant.get("steps")
+            if isinstance(steps, list) and steps:
+                out_assistant["steps"] = [str(step) for step in steps[:8]]
+            normalized["assistant"] = out_assistant
+
     low, high = normalized["filters"]["rsi_min"], normalized["filters"]["rsi_max"]
     if low is not None and high is not None and low > high:
         normalized["filters"]["rsi_min"], normalized["filters"]["rsi_max"] = high, low
@@ -199,6 +246,13 @@ def normalize_rules(candidate: dict[str, Any] | None, base: dict[str, Any] | Non
         normalized,
         explicit=list(normalized.get("chart_emas") or []),
     )
+    # Trade-to-Live / assistant gate: never allow planned R below min_rr (default 2.0).
+    assistant = normalized.get("assistant") or ASSISTANT_DEFAULT
+    min_rr = float(assistant.get("min_rr") or 2.0)
+    if float(normalized.get("r_target") or 0) < min_rr:
+        # Snap up to the smallest supported target meeting min_rr.
+        eligible = sorted(r for r in SUPPORTED_R_TARGETS if r >= min_rr)
+        normalized["r_target"] = float(eligible[0] if eligible else 2.0)
     return normalized
 
 
@@ -341,6 +395,20 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
     symbol = re.search(r"\b(BTC|ETH|SOL|XRP|BNB|ADA)USDT?\b", prompt.upper())
     if symbol:
         parsed["symbol"] = symbol.group(0).replace("USDT", "") + "USDT"
+    # Trade-to-Live / quality-assistant keywords → stricter paper filters + WAIT bias.
+    if _is_trade_to_live_prompt(text):
+        assistant = dict(parsed.get("assistant") or ASSISTANT_DEFAULT)
+        assistant["philosophy"] = "trade_to_live"
+        assistant["prefer_wait"] = True
+        assistant["min_rr"] = max(float(assistant.get("min_rr") or 2.0), 2.0)
+        assistant["require_ltf_confirmation"] = True
+        parsed["assistant"] = assistant
+        filters["ema_trend"] = True
+        filters["htf_ema200"] = True
+        if filters.get("volume_multiple") is None:
+            filters["volume_multiple"] = 1.5
+        if float(parsed.get("r_target") or 0) < 2.0:
+            parsed["r_target"] = 2.0
     # Chart overlays from explicit periods in the prompt (plus filter mapping in normalize).
     parsed["chart_emas"] = resolve_chart_emas(
         parsed,
@@ -348,6 +416,25 @@ def parse_prompt(prompt: str, rules: dict[str, Any] | None = None) -> dict[str, 
         explicit=list(parsed.get("chart_emas") or []),
     )
     return normalize_rules(parsed)
+
+
+def _is_trade_to_live_prompt(text: str) -> bool:
+    needles = (
+        "trade-to-live",
+        "trade to live",
+        "single setup",
+        "quality over quantity",
+        "wait / no trade",
+        "wait/no trade",
+        "no trade",
+        "rr 1:2",
+        "1:2",
+        "min rr",
+        "เทรดเพื่อใช้ชีวิต",
+        "ท่าเทรดเดียว",
+        "อิสรภาพ",
+    )
+    return any(needle in text for needle in needles)
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -501,9 +588,13 @@ def create_hypothesis(
                 prompt,
                 explicit=list(rules.get("chart_emas") or []),
             )
+            # Re-apply Trade-to-Live / quality gates even when an LLM parsed the shape.
+            rules = parse_prompt(prompt, rules)
+            # Keep the LLM parser label when the provider succeeded.
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError, RuntimeError) as exc:
             logger.warning("Hypothesis Lab LLM parsing failed; using rules engine: %s", exc)
             rules = parse_prompt(prompt, structured_rules)
+            parser = "regex"
     else:
         rules = normalize_rules(structured_rules)
     now = datetime.now(timezone.utc)
@@ -576,7 +667,17 @@ def lab_signals(rules: dict[str, Any], bars: list, htf: list) -> tuple[list[bool
             lookback = int(filters["breakout_bars"])
             checks.append((bar.close > max(x.high for x in bars[i - lookback:i]), f"close>prior {lookback}-bar high"))
         signals[i] = bool(checks) and all(passed for passed, _ in checks)
-        reasons[i] = "; ".join(label for _, label in checks)
+        if signals[i]:
+            reasons[i] = "; ".join(label for _, label in checks)
+        elif checks:
+            failed = [label for passed, label in checks if not passed]
+            reasons[i] = (
+                "WAIT — incomplete setup (missing: "
+                + "; ".join(failed)
+                + "). Prefer NO TRADE until trend + closed-bar confirmation + RR ≥ 1:2."
+            )
+        else:
+            reasons[i] = "WAIT — no Lab filters configured."
     return signals, reasons
 
 

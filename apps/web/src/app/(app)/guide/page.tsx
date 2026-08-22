@@ -106,14 +106,30 @@ const SECTIONS: GuideSection[] = [
     title: "Lab",
     image: "/guide/lab.svg",
     purpose:
-      "Hypothesis Lab: describe rules in plain English, generate an immutable version, backtest with fees, then save a paper profile (Pro). Hypotheses are private to your account.",
+      "Hypothesis Lab: describe rules in plain English, generate an immutable version, backtest with fees, then save a paper profile (Pro). Hypotheses are private to your account. Optional Trade-to-Live template favors WAIT/NO TRADE unless trend, zone confirmation, and RR ≥ 1:2 are present.",
     actions: [
-      "Write a prompt (symbol, interval, entries, filters, stop/target). EMAs in the prompt appear on the Market chart when the profile is selected.",
+      "Write a prompt (symbol, interval, entries, filters, stop/target). Or click Use Trade-to-Live template for a single high-quality long setup.",
       "Generate a testable version, then Backtest (≈0.80% fee per fill). REJECT is common and expected.",
       "Save paper profile (promote) on Pro when you want AUTO to use it. Free plans are limited to a few backtests per day.",
     ],
     connects:
-      "Only promoted Lab profiles drive Market/Coach paper AUTO. Other users cannot see your Lab work.",
+      "Only promoted Lab profiles drive Market/Coach paper AUTO. Other users cannot see your Lab work. Assistant rules prefer quality over forced entries.",
+  },
+  {
+    id: "assistant",
+    title: "Trading Analysis Assistant",
+    image: "/guide/lab-auto-flow.svg",
+    purpose:
+      "Paper-practice checklist used by Lab/AUTO: select high-quality setups only. Incomplete conditions mean WAIT or NO TRADE — never invent a signal just to trade.",
+    actions: [
+      "Step 1 Trend: up / down / unclear (WAIT if unclear).",
+      "Step 2 S/R as zones — never enter on touch alone.",
+      "Step 3 Lower-timeframe closed-bar confirmation before entry.",
+      "Step 4 Risk:Reward at least 1:2 with structure-valid stop and target.",
+      "Step 5 Final: BUY/LONG, SELL/SHORT, WAIT, or NO TRADE with reasons.",
+    ],
+    connects:
+      "Practice goals only (~1–3 quality paper setups/week). Not income promises, not live brokerage. Wire through Lab → Save paper profile → Market/Coach AUTO.",
   },
   {
     id: "analytics",
@@ -168,7 +184,8 @@ export default function GuidePage() {
         <AlertTitle>Lab-first paper AUTO</AlertTitle>
         <AlertDescription>
           Paper signals and AUTO use Hypothesis Lab profiles only. Prompt → backtest → Save paper
-          profile (Pro) → turn AUTO on in Market or Coach and leave the tab open.
+          profile (Pro) → turn AUTO on in Market or Coach and leave the tab open. Prefer WAIT / NO
+          TRADE when a setup is incomplete — quality over forced entries (see Trading Analysis Assistant).
         </AlertDescription>
       </Alert>
 

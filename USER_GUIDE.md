@@ -94,8 +94,20 @@ AUTO evaluates closed candles and fills eligible longs at the next candle open.
 ![Lab](apps/web/public/guide/lab.svg)
 
 - **For:** Research hypotheses into immutable paper profiles (per account).  
-- **Do:** Prompt → Generate → Backtest (0.80% fees; REJECT is common) → Save paper profile (**Pro**).  
+- **Do:** Prompt → Generate → Backtest (0.80% fees; REJECT is common) → Save paper profile (**Pro**). Use the **Trade-to-Live** template when you want a single high-quality setup (trend → S/R zones → closed-bar confirmation → RR ≥ 1:2). Incomplete setups should stay **WAIT / NO TRADE**.  
 - **Connects:** Only promoted profiles drive Market/Coach AUTO. Chart EMAs from the prompt appear on Market when selected.
+
+### Trading Analysis Assistant (paper practice)
+
+The Lab/Coach path is built to **select quality setups**, not to force trades:
+
+1. **Trend** — clear uptrend/downtrend bias (EMA / HTF); unclear → WAIT  
+2. **S/R zones** — watch zones, never enter on touch alone  
+3. **Confirmation** — closed lower-timeframe bar (rejection / reclaim / defense)  
+4. **Risk/Reward** — planned RR at least **1:2** or NO TRADE  
+5. **Decision** — BUY/LONG, SELL/SHORT, WAIT, or NO TRADE with reasons  
+
+This is a **practice philosophy** (“trade to live,” ~1–3 quality paper setups/week). It is **not** a promise of income, weekly %, or live exchange results.
 
 ## Analytics
 

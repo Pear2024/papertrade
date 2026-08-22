@@ -90,7 +90,10 @@ async def evaluate_promoted_lab(
     if not triggered:
         return CoachVerdict(
             symbol=sym, interval=iv, signal="WAIT", confidence=65,
-            reason=f"LAB {profile['id']} v{profile['version']}: WAIT — {reason}",
+            reason=(
+                f"LAB {profile['id']} v{profile['version']}: WAIT / NO TRADE — {reason} "
+                "Quality over quantity: do not force a paper entry."
+            ),
             cofr="C:65 | O:lab | F:WAIT | R:filters", price=to_decimal(signal_bar.close),
             ema9=None, ema21=None, volume=to_decimal(signal_bar.volume), volume_avg20=None,
             bar_closed=True, stop_loss=None, take_profit=None, risk_reward=None, source=source,
@@ -104,9 +107,22 @@ async def evaluate_promoted_lab(
         else to_decimal(signal_bar.low)
     )
     if stop <= 0 or stop >= entry:
-        raise HTTPException(status_code=422, detail="Lab profile produced an invalid long stop.")
+        return CoachVerdict(
+            symbol=sym, interval=iv, signal="WAIT", confidence=40,
+            reason=(
+                f"LAB {profile['id']} v{profile['version']}: NO TRADE — "
+                "stop loss is not structure-valid relative to entry."
+            ),
+            cofr="C:40 | O:lab | F:WAIT | R:invalid-stop", price=to_decimal(signal_bar.close),
+            ema9=None, ema21=None, volume=to_decimal(signal_bar.volume), volume_avg20=None,
+            bar_closed=True, stop_loss=None, take_profit=None, risk_reward=None, source=source,
+            evaluated_bar_time=signal_bar.time, brain="Hypothesis Lab", entry_setup="lab",
+        ), profile
     target = entry + (entry - stop) * Decimal(str(rules["r_target"]))
     settings = get_settings()
+    assistant = rules.get("assistant") or {}
+    assistant_min_rr = float(assistant.get("min_rr") or 2.0)
+    effective_min_rr = max(float(min_net_rr), assistant_min_rr)
     rr = calculate_net_risk_reward(
         entry=entry, stop_loss=stop, take_profit=target,
         fee_percent=to_decimal(settings.paper_trading_fee_percent),
@@ -114,12 +130,14 @@ async def evaluate_promoted_lab(
         notional_usd=notional_usd, slippage_bps_per_side=Decimal(str(slippage_bps)),
         spread_bps=Decimal(str(spread_bps)),
     )
-    blocked = rr.net_rr < Decimal(str(min_net_rr))
+    blocked = rr.net_rr < Decimal(str(effective_min_rr))
     return CoachVerdict(
         symbol=sym, interval=iv, signal="WAIT" if blocked else "BUY", confidence=85,
         reason=(
-            f"LAB {profile['id']} v{profile['version']} {'blocked by' if blocked else 'ENTRY BUY'}: "
-            f"{reason}. Closed bar → next open {entry}; ATR stop {stop}; {rules['r_target']}R target {target}."
+            f"LAB {profile['id']} v{profile['version']} "
+            f"{'NO TRADE — net RR below ' + f'{effective_min_rr:.2f}' if blocked else 'BUY / LONG SETUP'}: "
+            f"{reason}. Closed bar → next open {entry}; ATR stop {stop}; "
+            f"{rules['r_target']}R target {target}."
         ),
         cofr=f"C:85 | O:lab | F:{'WAIT' if blocked else 'ENTRY_BUY'} | R:closed→next-open",
         price=to_decimal(signal_bar.close), ema9=None, ema21=None, volume=to_decimal(signal_bar.volume),
