@@ -18,7 +18,12 @@ import { BarCountdown } from "./bar-countdown";
 import { HoldStatusCard } from "./hold-status-card";
 import { useCoachSettings } from "@/hooks/use-coach-settings";
 import { api } from "@/lib/api";
+import { coachSettingsToApiParams } from "@/lib/coach-settings";
 import { computeEma } from "@/lib/ema";
+import {
+  buildCoachHistoryMarkers,
+  mergeLiveCoachSignalMarker,
+} from "@/lib/ema-signals";
 import { formatMoney } from "@/lib/format";
 import {
   chartEmasFromRules,
@@ -113,6 +118,47 @@ export function TradingChart({
   );
   const emaPeriodsKey = emaPeriods.join(",");
 
+  const ruleOpts = useMemo(
+    () => coachSettingsToApiParams(settings, symbol),
+    [settings, symbol],
+  );
+
+  const historyQuery = useQuery({
+    queryKey: ["coach-signal-history", symbol, interval],
+    queryFn: () => api.coachSignalHistory({ symbol, interval, limit: 500 }),
+    refetchInterval: 30_000,
+  });
+
+  const signalQuery = useQuery({
+    queryKey: [
+      "coach-signal",
+      symbol,
+      interval,
+      ruleOpts.sl_pct,
+      ruleOpts.tp_pct,
+      ruleOpts.min_net_rr,
+      ruleOpts.slippage_bps,
+      ruleOpts.spread_bps,
+      "lab",
+      activeLab?.id,
+      settings.autoStakeUsd,
+      settings.leverage,
+    ],
+    queryFn: () =>
+      api.coachSignal(symbol, interval, {
+        slPct: ruleOpts.sl_pct,
+        tpPct: ruleOpts.tp_pct,
+        minNetRr: ruleOpts.min_net_rr,
+        slippageBps: ruleOpts.slippage_bps,
+        spreadBps: ruleOpts.spread_bps,
+        notionalUsd: settings.autoStakeUsd * settings.leverage,
+        entrySource: "lab",
+        hypothesisId: activeLab?.id,
+      }),
+    enabled: Boolean(activeLab?.id),
+    staleTime: 15_000,
+  });
+
   const candleSeries = useMemo(() => {
     const raw = candlesQuery.data?.candles ?? [];
     return raw.map((c) => ({
@@ -141,6 +187,13 @@ export function TradingChart({
       note: activeLab ? `Lab ${activeLab.name} v${activeLab.version}` : "Lab paper position",
     };
   }, [candleSeries, positionQuery.data, activeLab]);
+
+  const chartMarkers = useMemo(() => {
+    const candleTimes = new Set(candleSeries.map((c) => c.time));
+    const fromHistory = buildCoachHistoryMarkers(historyQuery.data?.items ?? []);
+    const merged = mergeLiveCoachSignalMarker(fromHistory, signalQuery.data);
+    return merged.filter((m) => candleTimes.has(m.time));
+  }, [candleSeries, historyQuery.data, signalQuery.data]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -268,7 +321,6 @@ export function TradingChart({
     dataLenRef.current = candleData.length;
 
     candleRef.current.setData(candleData);
-    candleRef.current.setMarkers([]);
 
     for (const [period, series] of emaSeriesRef.current) {
       const values = computeEma(closes, period);
@@ -290,6 +342,19 @@ export function TradingChart({
       pinningRef.current = false;
     });
   }, [candleSeries, followLive, emaPeriodsKey]);
+
+  useEffect(() => {
+    if (!candleRef.current) return;
+    candleRef.current.setMarkers(
+      chartMarkers.map((m) => ({
+        time: m.time as UTCTimestamp,
+        position: m.position,
+        color: m.color,
+        shape: m.shape,
+        text: m.text,
+      })),
+    );
+  }, [chartMarkers]);
 
   const last = candleSeries.at(-1);
   const lastClose = last?.close ?? null;

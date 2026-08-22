@@ -1,5 +1,6 @@
 import { computeEma } from "@/lib/ema";
 import { PAPER_FEE_PCT } from "@/lib/coach-settings";
+import type { CoachSignal, CoachSignalHistoryItem } from "@/lib/types";
 
 export type SignalSide = "buy" | "sell";
 
@@ -431,6 +432,105 @@ export function buildChartStoryMarkers(phases: PhaseEvent[]): StoryChartMarker[]
   }
 
   return markers.sort((a, b) => a.time - b.time);
+}
+
+function coachPhaseMarker(phase: string, time: number): StoryChartMarker | null {
+  switch (phase) {
+    case "ENTRY_BUY":
+      return {
+        time,
+        position: "belowBar",
+        color: "#00e676",
+        shape: "circle",
+        text: "ENTRY BUY",
+      };
+    case "ENTRY_SELL":
+      return {
+        time,
+        position: "aboveBar",
+        color: "#ff1744",
+        shape: "arrowDown",
+        text: "↓ ENTRY SELL",
+      };
+    case "EXIT_BUY":
+      return {
+        time,
+        position: "aboveBar",
+        color: "#b0bec5",
+        shape: "circle",
+        text: "EXIT LONG",
+      };
+    case "EXIT_SELL":
+      return {
+        time,
+        position: "aboveBar",
+        color: "#b0bec5",
+        shape: "circle",
+        text: "EXIT SHORT",
+      };
+    case "FLIP_TO_LONG":
+      return {
+        time,
+        position: "belowBar",
+        color: "#00e676",
+        shape: "arrowUp",
+        text: "EXIT SHORT → ENTRY LONG",
+      };
+    case "FLIP_TO_SHORT":
+      return {
+        time,
+        position: "aboveBar",
+        color: "#ff1744",
+        shape: "arrowDown",
+        text: "EXIT LONG → ENTRY SHORT",
+      };
+    default:
+      return null;
+  }
+}
+
+function resolveCoachMarkerPhase(item: CoachSignalHistoryItem): string | null {
+  const phase = item.phase ?? item.entry ?? item.exit_kind ?? "";
+  if (!phase || phase === "NONE") return null;
+  return phase;
+}
+
+/** Lab AUTO persisted signals → chart ENTRY/EXIT markers (evaluated_bar_time = candle open). */
+export function buildCoachHistoryMarkers(
+  items: CoachSignalHistoryItem[],
+): StoryChartMarker[] {
+  const seen = new Set<string>();
+  const markers: StoryChartMarker[] = [];
+
+  for (const item of items) {
+    const time = item.evaluated_bar_time;
+    if (!time) continue;
+    const phase = resolveCoachMarkerPhase(item);
+    if (!phase) continue;
+    const marker = coachPhaseMarker(phase, time);
+    if (!marker) continue;
+    const key = `${time}:${marker.text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    markers.push(marker);
+  }
+
+  return markers.sort((a, b) => a.time - b.time);
+}
+
+/** Overlay live /coach/signal ENTRY before history row is persisted. */
+export function mergeLiveCoachSignalMarker(
+  markers: StoryChartMarker[],
+  signal: Pick<CoachSignal, "evaluated_bar_time" | "phase" | "entry"> | null | undefined,
+): StoryChartMarker[] {
+  if (!signal?.evaluated_bar_time) return markers;
+  const phase = signal.phase ?? signal.entry ?? "";
+  if (!phase || phase === "NONE") return markers;
+  const time = signal.evaluated_bar_time;
+  if (markers.some((m) => m.time === time)) return markers;
+  const marker = coachPhaseMarker(phase, time);
+  if (!marker) return markers;
+  return [...markers, marker].sort((a, b) => a.time - b.time);
 }
 
 /**
